@@ -1,0 +1,21 @@
+[Unit]
+Description=KoreaStockDash FastAPI Backend
+After=network.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__WORKDIR__
+Environment=APP_TZ=Asia/Seoul
+# Data dir is fixed per repo rules; keep DB out of the code directory.
+Environment=STOCK_DATA_DIR=/var/lib/stock-backend
+Environment=DATABASE_URL=sqlite:////var/lib/stock-backend/korea_stock_dash.db
+Environment=RESET_DB_ON_START=false
+# Keep secrets / per-server knobs out of the repo.
+EnvironmentFile=-/etc/stock-backend.env
+ExecStart=__WORKDIR__/.venv/bin/uvicorn __APP_MODULE__ --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

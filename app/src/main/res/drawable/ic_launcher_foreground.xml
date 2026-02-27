@@ -1,0 +1,61 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- iPhone-style icon plate -->
+    <path
+        android:fillColor="#FFF9F9"
+        android:pathData="M22,14h64a12,12 0 0,1 12,12v64a12,12 0 0,1 -12,12h-64a12,12 0 0,1 -12,-12v-64a12,12 0 0,1 12,-12z" />
+
+    <path
+        android:fillColor="#EDEAFB"
+        android:fillAlpha="0.22"
+        android:pathData="M22,14h64a12,12 0 0,1 12,12v64a12,12 0 0,1 -12,12h-64a12,12 0 0,1 -12,-12v-64a12,12 0 0,1 12,-12z" />
+
+    <path
+        android:fillColor="#0B1E3A"
+        android:fillAlpha="0.22"
+        android:pathData="M33,66h5v-16h-5z" />
+
+    <path
+        android:fillColor="#0B1E3A"
+        android:fillAlpha="0.16"
+        android:pathData="M42,66h5v-22h-5z" />
+
+    <path
+        android:fillColor="#0B1E3A"
+        android:fillAlpha="0.13"
+        android:pathData="M51,66h5v-12h-5z" />
+
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M35.5,72L35.5,44M44.5,72L44.5,38M53.5,72L53.5,50"
+        android:strokeColor="#0B1E3A"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Red graph line -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M30,63L44,50L57,58L70,44L80,49"
+        android:strokeColor="#E53935"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <path
+        android:fillColor="#E53935"
+        android:fillAlpha="0.16"
+        android:pathData="M80,49m-7,0a7,7 0 1,0 14,0a7,7 0 1,0 -14,0" />
+
+    <path
+        android:fillColor="#E53935"
+        android:pathData="M80,49m-4,0a4,4 0 1,0 8,0a4,4 0 1,0 -8,0" />
+
+    <path
+        android:fillColor="#E53935"
+        android:pathData="M80,49l-8,-3l3,8z" />
+</vector>

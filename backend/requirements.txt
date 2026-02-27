@@ -1,0 +1,19 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.37
+pydantic==2.10.5
+python-dotenv==1.0.1
+apscheduler==3.10.4
+firebase-admin==6.6.0
+pandas==2.2.3
+numpy==1.26.4
+scikit-learn==1.6.1
+finance-datareader==0.9.96
+pykrx==1.2.3
+requests==2.32.5
+# GitHub source adapter for SEC metadata enrichment.
+sec-edgar-api==1.1.0
+# sec-edgar-api 1.1.0 is compatible with pyrate-limiter 3.1.x API.
+pyrate-limiter==3.1.0
+passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
