@@ -1216,7 +1216,21 @@ private fun resolveOrderReasonLabel(reason: String?, message: String?): String? 
         upper == "BROKER_CREDENTIAL_MISSING" -> "증권사 계정정보 없음"
         upper == "BROKER_ORDER_FAILED" -> "증권사 주문 실패"
         upper == "BROKER_REJECTED" -> "증권사 거부"
+        upper.startsWith("MARKET_") && upper.endsWith("_RESERVED") -> "${marketPhaseLabel(upper)} 자동 예약 완료"
+        upper.startsWith("MARKET_") && upper.endsWith("_RESERVATION_AVAILABLE") -> "${marketPhaseLabel(upper)}라 예약 주문으로 전환 가능"
+        upper.startsWith("MARKET_") && upper.endsWith("_BLOCKED") -> "${marketPhaseLabel(upper)}이며 예약 기능이 꺼져 있어 실행 차단"
         else -> "처리 사유 확인 필요"
+    }
+}
+
+private fun marketPhaseLabel(reasonCode: String): String {
+    val up = reasonCode.uppercase()
+    return when {
+        up.contains("PREOPEN") -> "장 시작 전"
+        up.contains("BREAK") -> "장중 휴장 구간"
+        up.contains("CLOSED") -> "장 종료"
+        up.contains("HOLIDAY") -> "휴장일"
+        else -> "주문 불가 시간"
     }
 }
 

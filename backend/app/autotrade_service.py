@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+import copy
 import json
+from threading import Lock
 from typing import Any
 from uuid import uuid4
 
@@ -25,6 +27,81 @@ def _norm_ticker(raw: str) -> str:
 
 def _is_kr_ticker(ticker: str) -> bool:
     return ticker.isdigit() and len(ticker) == 6
+
+
+_AUTOTRADE_CANDIDATE_BUILD_CACHE: dict[str, tuple[datetime, list[dict[str, Any]], dict[str, Any]]] = {}
+_AUTOTRADE_CANDIDATE_BUILD_CACHE_LOCK = Lock()
+_AUTOTRADE_CANDIDATE_BUILD_TTL_SEC = max(
+    5,
+    min(120, int(getattr(settings, "autotrade_candidates_build_ttl_sec", 20))),
+)
+_AUTOTRADE_CANDIDATE_BUILD_INITIAL_TTL_SEC = max(
+    _AUTOTRADE_CANDIDATE_BUILD_TTL_SEC,
+    min(180, int(getattr(settings, "autotrade_candidates_build_initial_ttl_sec", 45))),
+)
+
+
+def _autotrade_candidate_build_cache_key(
+    *,
+    user_id: int,
+    cfg: AutoTradeSetting,
+    limit: int,
+    profile_mode: str,
+) -> str:
+    updated = getattr(cfg, "updated_at", None)
+    updated_key = updated.replace(microsecond=0).isoformat() if isinstance(updated, datetime) else "na"
+    flags = ":".join(
+        [
+            str(int(bool(getattr(cfg, "include_daytrade", True)))),
+            str(int(bool(getattr(cfg, "include_movers", True)))),
+            str(int(bool(getattr(cfg, "include_supply", True)))),
+            str(int(bool(getattr(cfg, "include_papers", True)))),
+            str(int(bool(getattr(cfg, "include_longterm", True)))),
+            str(int(bool(getattr(cfg, "include_favorites", True)))),
+        ]
+    )
+    return f"{int(user_id)}:{int(limit)}:{profile_mode}:{updated_key}:{flags}"
+
+
+def _get_cached_autotrade_candidate_build(
+    cache_key: str,
+    profile_mode: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
+    with _AUTOTRADE_CANDIDATE_BUILD_CACHE_LOCK:
+        hit = _AUTOTRADE_CANDIDATE_BUILD_CACHE.get(cache_key)
+    if hit is None:
+        return None
+    cached_at, items, meta = hit
+    ttl_sec = (
+        _AUTOTRADE_CANDIDATE_BUILD_INITIAL_TTL_SEC
+        if profile_mode == "initial"
+        else _AUTOTRADE_CANDIDATE_BUILD_TTL_SEC
+    )
+    age_sec = (now() - cached_at).total_seconds()
+    if age_sec > ttl_sec:
+        return None
+    return copy.deepcopy(items), copy.deepcopy(meta)
+
+
+def _set_cached_autotrade_candidate_build(
+    cache_key: str,
+    items: list[dict[str, Any]],
+    meta: dict[str, Any],
+) -> None:
+    with _AUTOTRADE_CANDIDATE_BUILD_CACHE_LOCK:
+        _AUTOTRADE_CANDIDATE_BUILD_CACHE[cache_key] = (
+            now(),
+            copy.deepcopy(items),
+            copy.deepcopy(meta),
+        )
+
+
+def invalidate_autotrade_candidate_build_cache(user_id: int) -> None:
+    prefix = f"{int(user_id)}:"
+    with _AUTOTRADE_CANDIDATE_BUILD_CACHE_LOCK:
+        keys = [k for k in _AUTOTRADE_CANDIDATE_BUILD_CACHE if k.startswith(prefix)]
+        for key in keys:
+            _AUTOTRADE_CANDIDATE_BUILD_CACHE.pop(key, None)
 
 
 def get_or_create_autotrade_setting(session: Session, user_id: int) -> AutoTradeSetting:
@@ -134,10 +211,26 @@ def build_autotrade_candidates(
     limit: int = 50,
     diagnostics: dict[str, Any] | None = None,
     profile: str = "full",
+    use_cache: bool = True,
 ) -> list[dict[str, Any]]:
     profile_mode = str(profile or "full").strip().lower()
     if profile_mode not in {"full", "initial"}:
         profile_mode = "full"
+    cache_key = _autotrade_candidate_build_cache_key(
+        user_id=user_id,
+        cfg=cfg,
+        limit=max(1, min(limit, 300)),
+        profile_mode=profile_mode,
+    )
+    if use_cache:
+        cached = _get_cached_autotrade_candidate_build(cache_key, profile_mode=profile_mode)
+        if cached is not None:
+            cached_items, cached_meta = cached
+            if diagnostics is not None:
+                diagnostics["source_counts"] = dict(cached_meta.get("source_counts") or {})
+                diagnostics["warnings"] = list(cached_meta.get("warnings") or [])
+                diagnostics["premarket_available"] = bool(cached_meta.get("premarket_available"))
+            return cached_items
     bucket: dict[str, dict[str, Any]] = {}
     source_counts: dict[str, int] = {"DAYTRADE": 0, "MOVERS": 0, "SUPPLY": 0, "PAPERS": 0, "LONGTERM": 0, "FAVORITES": 0, "RECENT": 0}
     warnings: list[str] = []
@@ -296,11 +389,27 @@ def build_autotrade_candidates(
         diagnostics["source_counts"] = visible_counts
         diagnostics["warnings"] = warnings
         diagnostics["premarket_available"] = premarket is not None
+    if use_cache:
+        meta = {
+            "source_counts": diagnostics.get("source_counts") if diagnostics is not None else {},
+            "warnings": diagnostics.get("warnings") if diagnostics is not None else warnings,
+            "premarket_available": diagnostics.get("premarket_available") if diagnostics is not None else (premarket is not None),
+        }
+        _set_cached_autotrade_candidate_build(cache_key, items=ordered, meta=meta)
     return ordered
 
 
-def _filled_status(status: str) -> bool:
+def _is_real_fill_status(status: str) -> bool:
+    return status in {"PAPER_FILLED", "BROKER_FILLED"}
+
+
+def _is_position_relevant_status(status: str) -> bool:
     return status in {"PAPER_FILLED", "BROKER_SUBMITTED", "BROKER_FILLED"}
+
+
+def _filled_status(status: str) -> bool:
+    # Legacy alias: keep pending 포함 동작(포지션/중복진입 가드용)
+    return _is_position_relevant_status(status)
 
 
 def _parse_order_meta(raw: str | None) -> dict[str, Any]:
@@ -316,6 +425,13 @@ def _order_environment(row: AutoTradeOrder) -> str | None:
     env = str(meta.get("environment") or "").strip().lower()
     if env in {"paper", "demo", "prod"}:
         return env
+    reason = str(getattr(row, "reason", "") or "").strip().upper()
+    if "_PROD_" in reason:
+        return "prod"
+    if "_DEMO_" in reason:
+        return "demo"
+    if "_PAPER_" in reason:
+        return "paper"
     return None
 
 
@@ -350,7 +466,7 @@ def _recent_pending_order_tickers(
         if not ticker:
             continue
         row_env = _order_environment(row)
-        if row_env and target_env and row_env != target_env:
+        if target_env and row_env != target_env:
             continue
         out.add(ticker)
     return out
@@ -483,7 +599,7 @@ def _recent_trigger_blocked_tickers(
         if not ticker:
             continue
         row_env = _order_environment(row)
-        if row_env and target_env and row_env != target_env:
+        if target_env and row_env != target_env:
             continue
         out.add(ticker)
     return out
@@ -629,7 +745,7 @@ def _build_pnl_snapshot(session: Session, user_id: int, ymd: date) -> _PnLSnapsh
     closed_pnl_pct_today: list[float] = []
 
     for row in rows:
-        if not _filled_status(str(row.status)):
+        if not _is_real_fill_status(str(row.status)):
             continue
         qty = max(0, int(row.qty or 0))
         price = float(row.filled_price or row.requested_price or 0.0)
@@ -710,7 +826,7 @@ def recompute_daily_metric(session: Session, user_id: int, ymd: date) -> AutoTra
         .order_by(AutoTradeOrder.requested_at.desc())
         .all()
     )
-    day_filled_orders = [o for o in day_orders if _filled_status(str(o.status))]
+    day_filled_orders = [o for o in day_orders if _is_real_fill_status(str(o.status))]
     snapshot = _build_pnl_snapshot(session, user_id, ymd)
     open_positions = snapshot.positions
     tickers = [tk for tk in open_positions.keys() if _is_kr_ticker(str(tk))]
@@ -792,6 +908,7 @@ def run_autotrade_once(
     record_skipped_orders: bool = True,
     candidate_profile: str = "full",
     execution_mode: str = "all",
+    candidate_tickers: list[str] | set[str] | None = None,
 ) -> RunResult:
     def _resolve_runtime_price(pos: _RuntimePosition, quote_price: float | None) -> tuple[float, str]:
         broker_px = float(pos.current_price or 0.0)
@@ -820,7 +937,19 @@ def run_autotrade_once(
             cfg,
             limit=max(20, max_orders * 4),
             profile=candidate_profile,
+            use_cache=False,
         )
+        allowed = {
+            _norm_ticker(str(tk or ""))
+            for tk in (candidate_tickers or [])
+            if _norm_ticker(str(tk or ""))
+        }
+        if allowed:
+            candidates = [
+                c
+                for c in candidates
+                if _norm_ticker(str(c.get("ticker") or "")) in allowed
+            ]
     run_id = uuid4().hex[:12]
     if dry_run:
         return RunResult(

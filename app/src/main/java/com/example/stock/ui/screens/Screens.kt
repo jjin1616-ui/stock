@@ -1597,6 +1597,7 @@ private fun LineChart(points: List<ChartPointDto>, baseline: Double? = null, mod
     var usersError by remember { mutableStateOf<String?>(null) }
     var usersTotal by remember { mutableStateOf(0) }
     var users by remember { mutableStateOf<List<com.example.stock.data.api.UserSummaryDto>>(emptyList()) }
+    var usersListExpanded by rememberSaveable { mutableStateOf(false) }
     var invitedUsersLoading by remember { mutableStateOf(false) }
     var invitedUsersError by remember { mutableStateOf<String?>(null) }
     var invitedUsersTotal by remember { mutableStateOf(0) }
@@ -3587,7 +3588,12 @@ private fun LineChart(points: List<ChartPointDto>, baseline: Double? = null, mod
                         Spacer(Modifier.height(12.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("유저 목록", fontWeight = FontWeight.SemiBold)
-                            TextButton(onClick = { loadUsers() }) { Text(if (usersLoading) "로딩..." else "불러오기") }
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = { loadUsers() }) { Text(if (usersLoading) "로딩..." else "새로고침") }
+                                TextButton(onClick = { usersListExpanded = !usersListExpanded }) {
+                                    Text(if (usersListExpanded) "접기" else "펼치기")
+                                }
+                            }
                         }
                         OutlinedTextField(
                             value = adminUserQuery,
@@ -3609,12 +3615,36 @@ private fun LineChart(points: List<ChartPointDto>, baseline: Double? = null, mod
                                 code.contains(q, ignoreCase = true) || name.contains(q, ignoreCase = true)
                             }
                         }
+                        val collapsedPreviewCount = 6
+                        val visibleUsers = if (usersListExpanded) {
+                            filteredUsers.take(20)
+                        } else {
+                            val base = filteredUsers.take(collapsedPreviewCount).toMutableList()
+                            val selectedCode = selectedUserCode
+                            if (!selectedCode.isNullOrBlank() && base.none { it.userCode == selectedCode }) {
+                                filteredUsers.firstOrNull { it.userCode == selectedCode }?.let { selectedUser ->
+                                    base.add(0, selectedUser)
+                                }
+                            }
+                            base.take(collapsedPreviewCount + 1)
+                        }
                         if (!usersError.isNullOrBlank()) {
                             Text(usersError.orEmpty(), color = Color(0xFFB45309))
                         } else if (filteredUsers.isNotEmpty()) {
-                            Text("총 ${usersTotal}명 · 검색결과 ${filteredUsers.size}명 · 표시 ${minOf(filteredUsers.size, 20)}명", color = Color(0xFF64748B))
+                            val labelShownCount = visibleUsers.size
+                            Text(
+                                "총 ${usersTotal}명 · 검색결과 ${filteredUsers.size}명 · 표시 ${labelShownCount}명",
+                                color = Color(0xFF64748B),
+                            )
+                            if (!usersListExpanded && filteredUsers.size > collapsedPreviewCount) {
+                                Text(
+                                    "목록이 길어 기본 ${collapsedPreviewCount}명만 표시합니다. 필요 시 펼치세요.",
+                                    color = Color(0xFF64748B),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
                             Spacer(Modifier.height(8.dp))
-                            filteredUsers.take(20).forEach { u ->
+                            visibleUsers.forEach { u ->
                                 val code = u.userCode.orEmpty()
                                 val role = u.role.orEmpty()
                                 val status = u.status.orEmpty()
@@ -3652,83 +3682,77 @@ private fun LineChart(points: List<ChartPointDto>, baseline: Double? = null, mod
                                                 }
                                             ) { Text(if (selectedUserCode == code) "접기" else "펼치기") }
                                         }
-                                        FlowRow(
-                                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                                        ) {
-                                            AdminActionChip(
-                                                label = "메뉴권한",
-                                                tone = AdminActionTone.Primary,
-                                                onClick = {
-                                                    val displayName = u.name?.takeIf { it.isNotBlank() } ?: code
-                                                    openMenuEditor(code, displayName)
-                                                },
-                                            )
-                                            AdminActionChip(
-                                                label = "로그",
-                                                onClick = {
-                                                    if (!selected) loadSelectedUserDetail(code)
-                                                    selectedDetailTab = "접속로그"
-                                                },
-                                            )
-                                            AdminActionChip(
-                                                label = "수익/종목",
-                                                onClick = {
-                                                    if (!selected) loadSelectedUserDetail(code)
-                                                    selectedDetailTab = "수익/종목"
-                                                },
-                                            )
-                                            AdminActionChip(
-                                                label = if (blocked) "차단해제" else "접속차단",
-                                                tone = if (blocked) AdminActionTone.Primary else AdminActionTone.Danger,
-                                                onClick = {
-                                                    scope.launch {
-                                                        val r = if (blocked) authRepo.adminUnblockUser(code) else authRepo.adminBlockUser(code)
-                                                        r.onSuccess {
-                                                            scope.launch { snackbarHostState.showSnackbar(if (blocked) "UNBLOCK" else "BLOCK") }
-                                                            loadUsers()
-                                                            loadInvitedUsers()
-                                                            if (selectedUserCode == code) loadSelectedUserDetail(code)
-                                                        }.onFailure { e ->
-                                                            scope.launch { snackbarHostState.showSnackbar(e.message ?: "실패") }
-                                                        }
-                                                    }
-                                                },
-                                            )
-                                            AdminActionChip(
-                                                label = "세션종료",
-                                                onClick = {
-                                                    scope.launch {
-                                                        authRepo.adminRevokeUserSessions(code)
-                                                            .onSuccess {
-                                                                scope.launch { snackbarHostState.showSnackbar("세션 종료 완료") }
-                                                                if (selectedUserCode == code) loadSelectedUserDetail(code)
-                                                            }
-                                                            .onFailure { e -> scope.launch { snackbarHostState.showSnackbar(e.message ?: "세션 종료 실패") } }
-                                                    }
-                                                },
-                                            )
-                                            AdminActionChip(
-                                                label = "비번리셋",
-                                                onClick = {
-                                                    scope.launch {
-                                                        authRepo.adminResetPassword(
-                                                            code,
-                                                            com.example.stock.data.api.PasswordResetRequestDto(passwordMode = "AUTO", expiresInDays = 7),
-                                                        ).onSuccess { res ->
-                                                            lastReset = res
-                                                            clipboard.setText(AnnotatedString("${res.userCode} / ${res.initialPassword}"))
-                                                            scope.launch { snackbarHostState.showSnackbar("리셋됨(복사됨)") }
-                                                            if (selectedUserCode == code) loadSelectedUserDetail(code)
-                                                        }.onFailure { e ->
-                                                            scope.launch { snackbarHostState.showSnackbar(e.message ?: "리셋 실패") }
-                                                        }
-                                                    }
-                                                },
-                                            )
-                                        }
                                         if (selected) {
+                                            FlowRow(
+                                                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                            ) {
+                                                AdminActionChip(
+                                                    label = "메뉴권한",
+                                                    tone = AdminActionTone.Primary,
+                                                    onClick = {
+                                                        val displayName = u.name?.takeIf { it.isNotBlank() } ?: code
+                                                        openMenuEditor(code, displayName)
+                                                    },
+                                                )
+                                                AdminActionChip(
+                                                    label = "로그",
+                                                    onClick = { selectedDetailTab = "접속로그" },
+                                                )
+                                                AdminActionChip(
+                                                    label = "수익/종목",
+                                                    onClick = { selectedDetailTab = "수익/종목" },
+                                                )
+                                                AdminActionChip(
+                                                    label = if (blocked) "차단해제" else "접속차단",
+                                                    tone = if (blocked) AdminActionTone.Primary else AdminActionTone.Danger,
+                                                    onClick = {
+                                                        scope.launch {
+                                                            val r = if (blocked) authRepo.adminUnblockUser(code) else authRepo.adminBlockUser(code)
+                                                            r.onSuccess {
+                                                                scope.launch { snackbarHostState.showSnackbar(if (blocked) "UNBLOCK" else "BLOCK") }
+                                                                loadUsers()
+                                                                loadInvitedUsers()
+                                                                if (selectedUserCode == code) loadSelectedUserDetail(code)
+                                                            }.onFailure { e ->
+                                                                scope.launch { snackbarHostState.showSnackbar(e.message ?: "실패") }
+                                                            }
+                                                        }
+                                                    },
+                                                )
+                                                AdminActionChip(
+                                                    label = "세션종료",
+                                                    onClick = {
+                                                        scope.launch {
+                                                            authRepo.adminRevokeUserSessions(code)
+                                                                .onSuccess {
+                                                                    scope.launch { snackbarHostState.showSnackbar("세션 종료 완료") }
+                                                                    if (selectedUserCode == code) loadSelectedUserDetail(code)
+                                                                }
+                                                                .onFailure { e -> scope.launch { snackbarHostState.showSnackbar(e.message ?: "세션 종료 실패") } }
+                                                        }
+                                                    },
+                                                )
+                                                AdminActionChip(
+                                                    label = "비번리셋",
+                                                    onClick = {
+                                                        scope.launch {
+                                                            authRepo.adminResetPassword(
+                                                                code,
+                                                                com.example.stock.data.api.PasswordResetRequestDto(passwordMode = "AUTO", expiresInDays = 7),
+                                                            ).onSuccess { res ->
+                                                                lastReset = res
+                                                                clipboard.setText(AnnotatedString("${res.userCode} / ${res.initialPassword}"))
+                                                                scope.launch { snackbarHostState.showSnackbar("리셋됨(복사됨)") }
+                                                                if (selectedUserCode == code) loadSelectedUserDetail(code)
+                                                            }.onFailure { e ->
+                                                                scope.launch { snackbarHostState.showSnackbar(e.message ?: "리셋 실패") }
+                                                            }
+                                                        }
+                                                    },
+                                                )
+                                            }
                                             val loginSummary = selectedUserLoginLogs?.summary
                                             val ov = selectedUserAutoOverview
                                             val perf = ov?.performanceSummary

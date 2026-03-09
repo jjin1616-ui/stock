@@ -38,6 +38,7 @@ import com.example.stock.data.api.AutoTradeAccountSnapshotResponseDto
 import com.example.stock.data.api.AutoTradeBootstrapResponseDto
 import com.example.stock.data.api.AutoTradeReservationsResponseDto
 import com.example.stock.data.api.AutoTradeReservationActionResponseDto
+import com.example.stock.data.api.AutoTradeReservationPendingCancelResponseDto
 import com.example.stock.data.api.AutoTradeOrderCancelResponseDto
 import com.example.stock.data.api.AutoTradePendingCancelResponseDto
 import com.example.stock.data.api.AutoTradeReentryBlocksResponseDto
@@ -1286,12 +1287,15 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
     val runState = mutableStateOf(UiState<AutoTradeRunResponseDto>())
     val reservationsState = mutableStateOf(UiState<AutoTradeReservationsResponseDto>())
     val reservationActionState = mutableStateOf(UiState<AutoTradeReservationActionResponseDto>())
+    val reservationPendingCancelState = mutableStateOf(UiState<AutoTradeReservationPendingCancelResponseDto>())
     val orderCancelState = mutableStateOf(UiState<AutoTradeOrderCancelResponseDto>())
     val pendingCancelState = mutableStateOf(UiState<AutoTradePendingCancelResponseDto>())
+    val pendingCountState = mutableStateOf(UiState<Int>())
     val reentryBlocksState = mutableStateOf(UiState<AutoTradeReentryBlocksResponseDto>())
     val reentryReleaseState = mutableStateOf(UiState<AutoTradeReentryReleaseResponseDto>())
     val stockSearchState = mutableStateOf(UiState<StockSearchResponseDto>())
     val holdingQuoteState = mutableStateOf<Map<String, RealtimeQuoteItemDto>>(emptyMap())
+    val reservationQuoteState = mutableStateOf<Map<String, RealtimeQuoteItemDto>>(emptyMap())
 
     fun loadAll() {
         loadBootstrap()
@@ -1307,7 +1311,7 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
         candidatesState.value = candidatesState.value.copy(loading = true, error = null)
 
         viewModelScope.launch {
-            retryNetworkResult { repository.getAutoTradeBootstrap() }
+            retryNetworkResult { repository.getAutoTradeBootstrap(fast = true) }
                 .onSuccess { payload ->
                     applyBootstrap(payload)
                 }
@@ -1318,6 +1322,7 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
                     loadSymbolRules()
                     loadBroker()
                     loadOrders()
+                    loadPendingCount()
                     loadAccount()
                     loadReservations()
                     loadCandidates(limit = 80, profile = "initial")
@@ -1389,7 +1394,12 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
 
         val prefetchLimit = maxOf(40, minOf(100, payload.candidatesPrefetchLimit ?: 80))
         loadCandidates(limit = prefetchLimit, profile = "initial")
-        loadReservations(limit = 40)
+        loadReservations(limit = 200)
+        loadPendingCount(environment = payload.settings?.settings?.environment)
+        val accountSource = payload.account?.source?.trim()?.uppercase()
+        if (accountSource != "BROKER_LIVE") {
+            loadAccount()
+        }
     }
 
     fun loadSettings() {
@@ -1629,7 +1639,7 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
         }
     }
 
-    fun loadReservations(status: String? = null, limit: Int = 20) {
+    fun loadReservations(status: String? = null, limit: Int = 200) {
         reservationsState.value = reservationsState.value.copy(loading = true, error = null)
         viewModelScope.launch {
             retryNetworkResult { repository.getAutoTradeReservations(status = status, limit = limit) }
@@ -1667,6 +1677,7 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
                     loadAccount()
                     loadReservations()
                     loadCandidates(limit = 80, profile = "initial")
+                    loadPendingCount()
                 }
                 .onFailure { e ->
                     runState.value = runState.value.copy(
@@ -1721,6 +1732,52 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
         }
     }
 
+    fun cancelReservationItem(reservationId: Int, ticker: String) {
+        val targetTicker = ticker.trim()
+        if (targetTicker.isBlank()) return
+        reservationActionState.value = reservationActionState.value.copy(loading = true, error = null)
+        viewModelScope.launch {
+            repository.cancelAutoTradeReservationItem(
+                reservationId = reservationId,
+                ticker = targetTicker,
+            ).onSuccess {
+                reservationActionState.value = UiState(
+                    data = it,
+                    loading = false,
+                    refreshedAt = Clock.System.now().toString(),
+                )
+                loadReservations(limit = 200)
+            }.onFailure { e ->
+                reservationActionState.value = reservationActionState.value.copy(
+                    loading = false,
+                    error = e.toFriendlyNetworkMessage("예약 종목 취소에 실패했습니다"),
+                )
+            }
+        }
+    }
+
+    fun cancelAllPendingReservations(environment: String? = null, maxCount: Int = 30) {
+        reservationPendingCancelState.value = reservationPendingCancelState.value.copy(loading = true, error = null)
+        viewModelScope.launch {
+            repository.cancelAutoTradePendingReservations(
+                environment = environment,
+                maxCount = maxCount.coerceIn(1, 300),
+            ).onSuccess {
+                reservationPendingCancelState.value = UiState(
+                    data = it,
+                    loading = false,
+                    refreshedAt = Clock.System.now().toString(),
+                )
+                loadReservations(limit = 200)
+            }.onFailure { e ->
+                reservationPendingCancelState.value = reservationPendingCancelState.value.copy(
+                    loading = false,
+                    error = e.toFriendlyNetworkMessage("예약 일괄취소에 실패했습니다"),
+                )
+            }
+        }
+    }
+
     fun cancelPendingOrder(orderId: Int, environment: String? = null) {
         if (orderId <= 0) return
         orderCancelState.value = orderCancelState.value.copy(loading = true, error = null)
@@ -1734,6 +1791,7 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
                     )
                     loadOrders()
                     loadAccount()
+                    loadPendingCount()
                 }
                 .onFailure { e ->
                     orderCancelState.value = orderCancelState.value.copy(
@@ -1744,12 +1802,12 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
         }
     }
 
-    fun cancelAllPendingOrders(environment: String? = null, maxCount: Int = 50) {
+    fun cancelAllPendingOrders(environment: String? = null, maxCount: Int = 20) {
         pendingCancelState.value = pendingCancelState.value.copy(loading = true, error = null)
         viewModelScope.launch {
             repository.cancelAutoTradePendingOrders(
                 environment = environment,
-                maxCount = maxCount,
+                maxCount = maxCount.coerceIn(1, 50),
             ).onSuccess {
                 pendingCancelState.value = UiState(
                     data = it,
@@ -1758,6 +1816,7 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
                 )
                 loadOrders()
                 loadAccount()
+                loadPendingCount()
             }.onFailure { e ->
                 pendingCancelState.value = pendingCancelState.value.copy(
                     loading = false,
@@ -1819,6 +1878,29 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
         }
     }
 
+    fun loadPendingCount(environment: String? = null) {
+        pendingCountState.value = pendingCountState.value.copy(loading = true, error = null)
+        viewModelScope.launch {
+            repository.getAutoTradeOrders(
+                page = 1,
+                size = 1,
+                environment = environment,
+                status = "BROKER_SUBMITTED",
+            ).onSuccess { dto ->
+                pendingCountState.value = UiState(
+                    data = dto.total ?: 0,
+                    loading = false,
+                    refreshedAt = Clock.System.now().toString(),
+                )
+            }.onFailure { e ->
+                pendingCountState.value = pendingCountState.value.copy(
+                    loading = false,
+                    error = e.toFriendlyNetworkMessage("진행중 주문 개수를 불러오지 못했습니다"),
+                )
+            }
+        }
+    }
+
     fun searchStocks(query: String, limit: Int = 50) {
         val q = query.trim()
         if (q.isBlank()) {
@@ -1861,6 +1943,20 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
                 }
         }
     }
+
+    fun loadReservationQuotes(tickers: List<String>) {
+        val target = tickers.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(120)
+        if (target.isEmpty()) {
+            reservationQuoteState.value = emptyMap()
+            return
+        }
+        viewModelScope.launch {
+            repository.getRealtimeQuotes(target, mode = "light")
+                .onSuccess { quotes ->
+                    reservationQuoteState.value = quotes
+                }
+        }
+    }
 }
 
 class HoldingsViewModel(private val repository: StockRepository) : ViewModel() {
@@ -1869,6 +1965,7 @@ class HoldingsViewModel(private val repository: StockRepository) : ViewModel() {
     val accountProdState = mutableStateOf(UiState<AutoTradeAccountSnapshotResponseDto>())
     val symbolRulesState = mutableStateOf(UiState<AutoTradeSymbolRulesResponseDto>())
     val ordersState = mutableStateOf(UiState<AutoTradeOrdersResponseDto>())
+    val reservationsState = mutableStateOf(UiState<AutoTradeReservationsResponseDto>())
     val performanceState = mutableStateOf(UiState<AutoTradePerformanceResponseDto>())
     val actionState = mutableStateOf(UiState<AutoTradeRunResponseDto>())
     val holdingQuoteState = mutableStateOf<Map<String, RealtimeQuoteItemDto>>(emptyMap())
@@ -1877,6 +1974,7 @@ class HoldingsViewModel(private val repository: StockRepository) : ViewModel() {
         loadAccounts()
         loadSymbolRules()
         loadOrders()
+        loadReservations(limit = 200)
         loadPerformance(days = 365)
     }
 
@@ -1932,7 +2030,26 @@ class HoldingsViewModel(private val repository: StockRepository) : ViewModel() {
     fun loadOrders() {
         ordersState.value = ordersState.value.copy(loading = true, error = null)
         viewModelScope.launch {
-            retryNetworkResult { repository.getAutoTradeOrders(page = 1, size = 50) }
+            retryNetworkResult {
+                runCatching {
+                    val pageSize = 300
+                    val first = repository.getAutoTradeOrders(page = 1, size = pageSize).getOrThrow()
+                    val merged = first.items.orEmpty().toMutableList()
+                    val total = (first.total ?: merged.size).coerceAtLeast(merged.size)
+                    var page = 2
+                    while (merged.size < total && page <= 1000) {
+                        val next = repository.getAutoTradeOrders(page = page, size = pageSize).getOrThrow()
+                        val nextItems = next.items.orEmpty()
+                        if (nextItems.isEmpty()) break
+                        merged += nextItems
+                        page += 1
+                    }
+                    AutoTradeOrdersResponseDto(
+                        total = merged.size,
+                        items = merged,
+                    )
+                }
+            }
                 .onSuccess {
                     ordersState.value = UiState(
                         data = it,
@@ -1949,11 +2066,32 @@ class HoldingsViewModel(private val repository: StockRepository) : ViewModel() {
         }
     }
 
-    fun loadPerformance(days: Int = 365) {
+    fun loadReservations(limit: Int = 200) {
+        val safeLimit = limit.coerceIn(1, 200)
+        reservationsState.value = reservationsState.value.copy(loading = true, error = null)
+        viewModelScope.launch {
+            retryNetworkResult { repository.getAutoTradeReservations(limit = safeLimit) }
+                .onSuccess {
+                    reservationsState.value = UiState(
+                        data = it,
+                        loading = false,
+                        refreshedAt = Clock.System.now().toString(),
+                    )
+                }
+                .onFailure { e ->
+                    reservationsState.value = reservationsState.value.copy(
+                        loading = false,
+                        error = e.toFriendlyNetworkMessage("예약 이력을 불러오지 못했습니다"),
+                    )
+                }
+        }
+    }
+
+    fun loadPerformance(days: Int = 365, environment: String? = null) {
         val safeDays = days.coerceIn(1, 365)
         performanceState.value = performanceState.value.copy(loading = true, error = null)
         viewModelScope.launch {
-            retryNetworkResult { repository.getAutoTradePerformance(days = safeDays) }
+            retryNetworkResult { repository.getAutoTradePerformance(days = safeDays, environment = environment) }
                 .onSuccess {
                     performanceState.value = UiState(
                         data = it,
@@ -2027,6 +2165,7 @@ class HoldingsViewModel(private val repository: StockRepository) : ViewModel() {
                     )
                     loadAccounts()
                     loadOrders()
+                    loadReservations(limit = 200)
                 }
                 .onFailure { e ->
                     actionState.value = actionState.value.copy(

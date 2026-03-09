@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import contextlib
 import fcntl
@@ -54,7 +54,12 @@ class KisBalanceSnapshot:
     stock_eval_amount: float
     total_asset_amount: float
     total_pnl_amount: float
-    positions: list[KisBalancePosition]
+    positions: list[KisBalancePosition] = field(default_factory=list)
+    realized_pnl_amount: float | None = None
+    real_eval_pnl_amount: float | None = None
+    real_eval_pnl_rate: float | None = None
+    asset_change_amount: float | None = None
+    asset_change_rate: float | None = None
     raw: dict[str, Any] | None = None
 
 
@@ -711,24 +716,24 @@ class KisBrokerClient:
             stock_eval = summary_stock_eval
 
         summary_total_asset = self._first_float(summary_output2, ["tot_evlu_amt", "tot_asst_amt", "nass_amt"])
-        computed_total_asset = cash_amount + stock_eval
-        if summary_total_asset <= 0.0:
-            total_asset = computed_total_asset
-        else:
+        # KIS tot_evlu_amt는 계좌 총평가 기준값이므로 우선 사용한다.
+        # summary 미수신시에만 계산 fallback을 사용한다.
+        computed_total_asset = stock_eval + (orderable_cash if orderable_cash > 0.0 else cash_amount)
+        if summary_total_asset > 0.0:
             diff = abs(summary_total_asset - computed_total_asset)
             tolerance = max(1.0, max(summary_total_asset, computed_total_asset) * 0.01)
             if computed_total_asset > 0.0 and diff > tolerance:
                 logger.warning(
-                    "KIS balance total_asset mismatch env=%s summary=%.0f computed=%.0f cash=%.0f stock=%.0f",
+                    "KIS balance total_asset mismatch env=%s summary=%.0f computed=%.0f orderable=%.0f stock=%.0f",
                     env_key,
                     summary_total_asset,
                     computed_total_asset,
-                    cash_amount,
+                    orderable_cash,
                     stock_eval,
                 )
-                total_asset = computed_total_asset
-            else:
-                total_asset = summary_total_asset
+            total_asset = summary_total_asset
+        else:
+            total_asset = computed_total_asset
 
         summary_total_pnl = self._first_float(summary_output2, ["evlu_pfls_smtl_amt", "evlu_pfls_amt"])
         if positions:
@@ -745,6 +750,27 @@ class KisBrokerClient:
         else:
             total_pnl = summary_total_pnl
 
+        summary_realized_pnl = self._first_float(
+            summary_output2,
+            ["rlzt_pfls", "tot_rlzt_pfls", "thdt_rlzt_pfls"],
+        )
+        summary_real_eval_pnl = self._first_float(
+            summary_output2,
+            ["real_evlu_pfls", "evlu_pfls_smtl_amt", "evlu_pfls_amt"],
+        )
+        summary_real_eval_pnl_rate = self._first_float(
+            summary_output2,
+            ["real_evlu_pfls_erng_rt", "evlu_pfls_rt", "evlu_erng_rt"],
+        )
+        summary_asset_change_amount = self._first_float(
+            summary_output2,
+            ["asst_icdc_amt", "thdt_asst_icdc_amt"],
+        )
+        summary_asset_change_rate = self._first_float(
+            summary_output2,
+            ["asst_icdc_erng_rt", "asst_icdc_rt"],
+        )
+
         raw_payload: dict[str, Any] = {
             "page_count": len(page_payloads),
             "ctx_last_fk100": ctx_fk100,
@@ -759,6 +785,11 @@ class KisBrokerClient:
             stock_eval_amount=stock_eval,
             total_asset_amount=total_asset,
             total_pnl_amount=total_pnl,
+            realized_pnl_amount=summary_realized_pnl,
+            real_eval_pnl_amount=summary_real_eval_pnl,
+            real_eval_pnl_rate=summary_real_eval_pnl_rate,
+            asset_change_amount=summary_asset_change_amount,
+            asset_change_rate=summary_asset_change_rate,
             positions=positions,
             raw=raw_payload,
         )

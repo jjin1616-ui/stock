@@ -49,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Alignment
@@ -143,13 +144,36 @@ private fun friendlyBrokerRejectReason(raw: String?): String {
     }
 }
 
+private fun friendlyOrderCancelMessage(raw: String?): String {
+    val msg = raw?.trim().orEmpty()
+    if (msg.isBlank()) return "사유 미확인"
+    return when {
+        msg.contains("자동 예약") || msg.contains("예약 #") ->
+            msg
+        msg.contains("장종료") || msg.contains("장시작전") || msg.contains("장시간") || msg.contains("시간외") ->
+            "장시간 외라 즉시 취소는 불가하지만, 장중 자동 취소 예약으로 처리할 수 있습니다."
+        msg.contains("주문 전송 완료") ->
+            "이미 처리 단계에 진입해 접수취소할 수 없습니다."
+        msg.contains("잔고내역이 없습니다") ->
+            "보유/접수 상태가 이미 정리되어 취소 대상이 아닙니다."
+        msg.contains("NOT_PENDING_ORDER", ignoreCase = true) ->
+            "이미 처리된 주문이라 접수취소할 수 없습니다."
+        msg.contains("BROKER_ORDER_NO_MISSING", ignoreCase = true) ->
+            "증권사 주문번호가 없어 접수취소할 수 없습니다."
+        msg.contains("40320000") || msg.contains("원주문번호가 존재하지 않습니다") ->
+            "이미 체결/취소되어 접수취소 대상이 아닙니다. 증권사 상태로 동기화됩니다."
+        else -> msg
+    }
+}
+
 private fun orderStatusLabel(raw: String?, reason: String? = null): String = when (raw?.trim()?.uppercase()) {
     "PAPER_FILLED" -> "내부모의체결"
     "BROKER_SUBMITTED" -> "증권사 접수(체결대기)"
     "BROKER_FILLED" -> "증권사 체결"
     "BROKER_CANCELED" -> "증권사 접수취소 완료"
+    "BROKER_CLOSED" -> "증권사 상태정리(취소대상 아님)"
     "BROKER_REJECTED" -> "증권사 ${friendlyBrokerRejectReason(reason)}"
-    "SKIPPED" -> "스킵"
+    "SKIPPED" -> "조건 미충족"
     "ERROR" -> "오류"
     else -> "기타"
 }
@@ -168,7 +192,9 @@ private fun friendlyRunMessage(raw: String?): String {
     return when {
         up.startsWith("RUN_OK") -> "실행 완료"
         up.startsWith("DRY_RUN") -> "전략 점검 완료(주문 없음)"
+        up.startsWith("RUN_ALREADY_IN_PROGRESS") -> "동일 환경 주문 실행이 진행 중입니다. 완료 후 다시 시도하세요."
         up.contains("RESERVATION_AVAILABLE") -> "${runMarketPhaseLabel(up)}입니다. 예약 주문으로 전환할 수 있습니다."
+        up.contains("RESERVATION_MERGED") -> "${runMarketPhaseLabel(up)} 기존 예약과 병합 등록되었습니다."
         up.contains("_RESERVED") -> "${runMarketPhaseLabel(up)} 예약이 등록되었습니다."
         up.contains("_BLOCKED") -> "${runMarketPhaseLabel(up)}이며 예약 설정이 꺼져 있어 실행을 중단했습니다."
         up.startsWith("BROKER_CREDENTIAL_MISSING") -> "증권사 계정정보가 준비되지 않아 주문을 실행하지 못했습니다."
@@ -199,11 +225,33 @@ private fun friendlyRunReason(raw: String?): String {
         up == "TAKEPROFIT_REENTRY_BLOCKED_MANUAL" -> "익절 수동 재진입 차단"
         up == "QTY_ZERO" -> "종목당 예산 대비 수량 0"
         up == "SELLABLE_QTY_ZERO" -> "매도가능수량 0"
+        up == "TAKE_PROFIT" -> "익절 조건 도달"
+        up == "STOP_LOSS" -> "손절 조건 도달"
+        up == "BROKER_NO_HOLDING" -> "증권사 보유잔고 없음"
+        up == "BROKER_CREDENTIAL_MISSING" -> "증권사 계정정보 누락"
+        up.startsWith("BROKER_BALANCE_UNAVAILABLE") -> "증권사 잔고 조회 실패"
+        up == "DAILY_LOSS_LIMIT_REACHED" -> "일 손실 한도 도달"
+        up.startsWith("MARKET_") || up == "MARKET_CLOSED" -> "장시간 외 주문 불가/예약 전환"
         msg.contains("주문가능금액을 초과") -> "주문가능금액 초과"
         msg.contains("잔고내역이 없습니다") -> "보유잔고 없음"
         msg.contains("장시작전") || msg.contains("장운영시간이 아닙니다") -> "장시간 외 주문불가"
         msg.contains("주문 전송 완료") -> "주문 전송 완료"
         else -> "사유 확인 필요"
+    }
+}
+
+private fun normalizedRunReasonCode(order: AutoTradeOrderItemDto): String {
+    val detailCode = order.reasonDetail?.reasonCode?.trim().orEmpty()
+    if (detailCode.isNotBlank()) return detailCode.uppercase()
+    val reason = order.reason?.trim().orEmpty()
+    if (reason.isBlank()) return "UNKNOWN"
+    val up = reason.uppercase()
+    if (Regex("^[A-Z0-9_]+$").matches(up)) return up
+    return when {
+        reason.contains("주문가능금액을 초과") -> "ORDERABLE_CASH_LIMIT"
+        reason.contains("잔고내역이 없습니다") -> "BROKER_NO_HOLDING"
+        reason.contains("장시작전") || reason.contains("장운영시간이 아닙니다") -> "MARKET_CLOSED"
+        else -> "UNKNOWN"
     }
 }
 
@@ -225,6 +273,10 @@ private fun buildRunAlertBody(
     lines += "상태: ${friendlyRunMessage(runResult.message)}"
     if (runResult.queued == true && runResult.reservationId != null) {
         lines += "예약 ID: #${runResult.reservationId} (${runResult.reservationStatus ?: "QUEUED"})"
+        if (runResult.reservationMerged == true) {
+            val mergeRequests = (runResult.reservationMergeRequests ?: 2).coerceAtLeast(2)
+            lines += "중복 실행 요청을 기존 예약으로 병합했습니다. (누적 ${mergeRequests}회)"
+        }
         val previewCount = runResult.reservationPreviewCount ?: runResult.requestedCount ?: 0
         lines += "예약 검토 대상 ${previewCount}건"
         val previewNames = runResult.reservationPreviewItems.orEmpty()
@@ -239,14 +291,16 @@ private fun buildRunAlertBody(
         lines += "요청 ${runResult.requestedCount ?: 0}건 · 접수 ${runResult.submittedCount ?: 0}건 · 체결 ${runResult.filledCount ?: 0}건 · 스킵 ${runResult.skippedCount ?: 0}건"
     }
 
-    val reasons = runResult.orders.orEmpty()
-        .mapNotNull { it.reason?.trim()?.takeIf { txt -> txt.isNotBlank() } }
-        .groupingBy { friendlyRunReason(it) }
+    val reasonCounts = runResult.orders.orEmpty()
+        .map { normalizedRunReasonCode(it) }
+        .groupingBy { it }
         .eachCount()
         .entries
         .sortedByDescending { it.value }
-    if (reasons.isNotEmpty()) {
-        lines += "주요 사유: " + reasons.take(3).joinToString(" / ") { "${it.key} ${it.value}건" }
+    if (reasonCounts.isNotEmpty()) {
+        lines += "주요 사유: " + reasonCounts.take(3).joinToString(" / ") {
+            "${friendlyRunReason(it.key)}(${it.key}) ${it.value}건"
+        }
     }
 
     val orderableCash = accountSnapshot?.orderableCashKrw
@@ -385,8 +439,10 @@ fun AutoTradeScreen(
     val accountState = vm.accountState.value
     val runState = vm.runState.value
     val reservationActionState = vm.reservationActionState.value
+    val reservationPendingCancelState = vm.reservationPendingCancelState.value
     val orderCancelState = vm.orderCancelState.value
     val pendingCancelState = vm.pendingCancelState.value
+    val pendingCountState = vm.pendingCountState.value
     val snackbarHostState = remember { SnackbarHostState() }
     val holdingDetailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var refreshToken by remember { mutableStateOf(0) }
@@ -396,6 +452,7 @@ fun AutoTradeScreen(
     var selectedHoldingDetail by remember { mutableStateOf<AutoTradeHoldingDetailUi?>(null) }
     var showHoldings by remember { mutableStateOf(false) }
     var showPending by remember { mutableStateOf(true) }
+    var showReservations by remember { mutableStateOf(true) }
     var showExecutions by remember { mutableStateOf(false) }
     var showSkipped by remember { mutableStateOf(false) }
     var showChecklist by remember { mutableStateOf(false) }
@@ -409,6 +466,11 @@ fun AutoTradeScreen(
     var lastHandledRunKey by remember { mutableStateOf<String?>(null) }
     var lastHandledOrderCancelKey by remember { mutableStateOf<String?>(null) }
     var lastHandledPendingCancelKey by remember { mutableStateOf<String?>(null) }
+    var lastHandledReservationPendingCancelKey by remember { mutableStateOf<String?>(null) }
+    var pendingOrderActionLoadingId by remember { mutableStateOf<Int?>(null) }
+    var pendingOrderActionMessages by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }
+    var reservationItemActionLoadingKey by remember { mutableStateOf<String?>(null) }
+    var reservationItemActionMessages by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
     LaunchedEffect(Unit) { vm.loadAll() }
 
@@ -430,6 +492,7 @@ fun AutoTradeScreen(
 
     val statusMsg = runState.data?.message
         ?: runState.error
+        ?: reservationPendingCancelState.error
         ?: orderCancelState.error
         ?: pendingCancelState.error
         ?: reservationActionState.error
@@ -442,6 +505,15 @@ fun AutoTradeScreen(
     val scopedOrders = rawOrders.filter { isOrderForEnvironment(it, environment) }
     val rawReservations = reservationsState.data?.items.orEmpty()
     val scopedReservations = rawReservations.filter { isReservationForEnvironment(it, environment) }
+    val otherEnvPendingReservations = rawReservations
+        .filter { isReservationPending(it.status) && !isReservationForEnvironment(it, environment) }
+    val otherEnvPendingReservationCount = otherEnvPendingReservations.size
+    val otherEnvPendingSummary = otherEnvPendingReservations
+        .groupingBy { environmentTitle(it.environment?.trim()?.lowercase() ?: "demo") }
+        .eachCount()
+        .entries
+        .sortedBy { it.key }
+        .joinToString(" · ") { "${it.key} ${it.value}건" }
     val candidateItems = candidatesState.data?.items.orEmpty()
     val sourceBreakdown = ((candidatesState.data?.sourceCounts ?: emptyMap()).entries)
         .filter { it.value > 0 }
@@ -468,6 +540,7 @@ fun AutoTradeScreen(
     val brokerLiveAccount = snapshotSource == "BROKER_LIVE"
     val holdings = if (isDisplayableSnapshotSource(snapshotSource)) buildHoldingSummaryFromAccount(displaySnapshot) else emptyList()
     val holdingQuotes = vm.holdingQuoteState.value
+    val reservationQuotes = vm.reservationQuoteState.value
     val recentExecutions = scopedOrders
         .filter { isOrderFilled(it.status) }
         .sortedByDescending { it.filledAt ?: it.requestedAt ?: "" }
@@ -484,9 +557,10 @@ fun AutoTradeScreen(
         .filter { isOrderSkipped(it.status) }
         .sortedByDescending { it.requestedAt ?: "" }
         .take(20)
-    val pendingReservations = scopedReservations
+    val pendingReservationsAll = scopedReservations
         .filter { isReservationPending(it.status) }
         .sortedByDescending { it.updatedAt ?: it.requestedAt ?: "" }
+    val pendingReservations = pendingReservationsAll
         .take(20)
     val closedReservations = scopedReservations
         .filter { !isReservationPending(it.status) }
@@ -540,6 +614,23 @@ fun AutoTradeScreen(
         vm.loadHoldingQuotes(holdings.map { it.ticker })
     }
 
+    LaunchedEffect(
+        pendingReservations.flatMap { it.previewItems.orEmpty().map { row -> normalizeTicker(row.ticker) } }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString(",")
+    ) {
+        val tickers = pendingReservations
+            .flatMap { it.previewItems.orEmpty().map { row -> normalizeTicker(row.ticker) } }
+            .filter { it.isNotBlank() }
+            .distinct()
+        vm.loadReservationQuotes(tickers)
+    }
+
+    LaunchedEffect(environment, ordersState.refreshedAt) {
+        vm.loadPendingCount(environment = environment)
+    }
+
     LaunchedEffect(runState.loading, runState.refreshedAt, runState.error, runState.data?.runId) {
         if (runState.loading || runState.refreshedAt.isNullOrBlank()) return@LaunchedEffect
         val key = listOf(runState.refreshedAt, runState.data?.runId, runState.error).joinToString("|")
@@ -570,11 +661,18 @@ fun AutoTradeScreen(
         val actionData = reservationActionState.data
         val message = when {
             !reservationActionState.error.isNullOrBlank() -> reservationActionState.error
+            actionData?.ok == false -> actionData.message ?: "예약 처리에 실패했습니다."
+            !actionData?.message.isNullOrBlank() -> actionData?.message
             actionData?.reservation?.status?.uppercase() == "CANCELED" -> "예약 주문을 취소했습니다."
             actionData?.reservation?.status?.uppercase() in setOf("DONE", "PARTIAL", "FAILED") ->
                 "예약 주문 실행 결과: ${reservationStatusLabel(actionData?.reservation?.status)}"
             else -> null
         }
+        val pendingItemKey = reservationItemActionLoadingKey
+        if (!message.isNullOrBlank() && !pendingItemKey.isNullOrBlank()) {
+            reservationItemActionMessages = reservationItemActionMessages + (pendingItemKey to message)
+        }
+        reservationItemActionLoadingKey = null
         if (!message.isNullOrBlank()) {
             snackbarHostState.showSnackbar(message)
         }
@@ -584,12 +682,24 @@ fun AutoTradeScreen(
         if (orderCancelState.loading) return@LaunchedEffect
         val key = listOf(orderCancelState.refreshedAt, orderCancelState.error, orderCancelState.data?.order?.id).joinToString("|")
         if (key == lastHandledOrderCancelKey) return@LaunchedEffect
+        val targetOrderId = orderCancelState.data?.order?.id ?: pendingOrderActionLoadingId
         val message = when {
             !orderCancelState.error.isNullOrBlank() -> orderCancelState.error
             orderCancelState.data?.ok == true -> orderCancelState.data?.message ?: "접수대기 주문 취소 완료"
-            orderCancelState.data != null -> "접수취소 실패: ${orderCancelState.data?.message ?: "사유 미확인"}"
+            orderCancelState.data != null -> "접수취소 실패: ${friendlyOrderCancelMessage(orderCancelState.data?.message)}"
             else -> null
         }
+        val processedIds = (
+            orderCancelState.data?.canceledOrderIds.orEmpty() +
+                orderCancelState.data?.closedOrderIds.orEmpty()
+            ).toSet()
+        if (processedIds.isNotEmpty()) {
+            pendingOrderActionMessages = pendingOrderActionMessages.filterKeys { keyId -> keyId !in processedIds }
+        }
+        if ((targetOrderId ?: 0) > 0 && !message.isNullOrBlank()) {
+            pendingOrderActionMessages = pendingOrderActionMessages + ((targetOrderId ?: 0) to message)
+        }
+        pendingOrderActionLoadingId = null
         if (!message.isNullOrBlank()) {
             snackbarHostState.showSnackbar(message)
         }
@@ -609,12 +719,46 @@ fun AutoTradeScreen(
         val message = when {
             !pendingCancelState.error.isNullOrBlank() -> pendingCancelState.error
             pendingCancelState.data?.ok == true -> pendingCancelState.data?.message ?: "접수대기 주문 일괄취소 처리 완료"
+            pendingCancelState.data != null -> friendlyOrderCancelMessage(pendingCancelState.data?.message)
             else -> null
+        }
+        pendingOrderActionLoadingId = null
+        val canceledIds = pendingCancelState.data?.canceledOrders.orEmpty().mapNotNull { it.id }.toSet()
+        if (canceledIds.isNotEmpty()) {
+            pendingOrderActionMessages = pendingOrderActionMessages.filterKeys { keyId -> keyId !in canceledIds }
         }
         if (!message.isNullOrBlank()) {
             snackbarHostState.showSnackbar(message)
         }
         lastHandledPendingCancelKey = key
+    }
+
+    LaunchedEffect(
+        reservationPendingCancelState.loading,
+        reservationPendingCancelState.refreshedAt,
+        reservationPendingCancelState.error,
+    ) {
+        if (reservationPendingCancelState.loading) return@LaunchedEffect
+        val key = listOf(
+            reservationPendingCancelState.refreshedAt,
+            reservationPendingCancelState.error,
+            reservationPendingCancelState.data?.requestedCount,
+            reservationPendingCancelState.data?.canceledCount,
+            reservationPendingCancelState.data?.failedCount,
+        ).joinToString("|")
+        if (key == lastHandledReservationPendingCancelKey) return@LaunchedEffect
+        val message = when {
+            !reservationPendingCancelState.error.isNullOrBlank() -> reservationPendingCancelState.error
+            reservationPendingCancelState.data?.ok == true ->
+                reservationPendingCancelState.data?.message ?: "예약 일괄취소 처리 완료"
+            reservationPendingCancelState.data != null ->
+                reservationPendingCancelState.data?.message ?: "예약 일괄취소 처리에 실패했습니다."
+            else -> null
+        }
+        if (!message.isNullOrBlank()) {
+            snackbarHostState.showSnackbar(message)
+        }
+        lastHandledReservationPendingCancelKey = key
     }
 
     Scaffold(
@@ -652,6 +796,7 @@ fun AutoTradeScreen(
                         accountState.loading ||
                         runState.loading ||
                         reservationActionState.loading ||
+                        reservationPendingCancelState.loading ||
                         orderCancelState.loading ||
                         pendingCancelState.loading,
                     onRefresh = { doRefresh() },
@@ -734,30 +879,79 @@ fun AutoTradeScreen(
                             }
                         }
                         item {
-                            AutoTradeCollapsibleCard(
-                                title = "진행중/미체결",
-                                summary = buildPendingSummary(
-                                    pendingOrderCount = pendingOrders.size,
-                                    pendingReservationCount = pendingReservations.size,
-                                    latestAt = (
-                                        pendingOrders.firstOrNull()?.requestedAt
-                                            ?: pendingReservations.firstOrNull()?.updatedAt
-                                            ?: pendingReservations.firstOrNull()?.requestedAt
-                                        ),
-                                ),
+                                AutoTradeCollapsibleCard(
+                                    title = "진행중/미체결",
+                                    summary = buildPendingSummary(
+                                        pendingOrderCount = pendingOrders.size,
+                                        latestAt = pendingOrders.firstOrNull()?.requestedAt,
+                                    ),
                                 expanded = showPending,
                                 onToggle = { showPending = !showPending },
                             ) {
                                 AutoTradePendingCenterCard(
                                     pendingOrders = pendingOrders,
+                                    loading = ordersState.loading || reservationsState.loading,
+                                    actionLoading = reservationActionState.loading ||
+                                        reservationPendingCancelState.loading ||
+                                        orderCancelState.loading ||
+                                        pendingCancelState.loading,
+                                    pendingOrderCancelingId = pendingOrderActionLoadingId,
+                                    pendingOrderActionMessages = pendingOrderActionMessages,
+                                    onCancelPendingOrder = { order ->
+                                        val targetTicker = normalizeTicker(order.ticker)
+                                        val targetIds = pendingOrders
+                                            .filter { normalizeTicker(it.ticker) == targetTicker }
+                                            .mapNotNull { it.id }
+                                            .toSet()
+                                        pendingOrderActionLoadingId = order.id
+                                        if (targetIds.isNotEmpty()) {
+                                            val merged = pendingOrderActionMessages.toMutableMap()
+                                            targetIds.forEach { oid -> merged[oid] = "종목 전체 접수취소 처리 중..." }
+                                            pendingOrderActionMessages = merged
+                                        } else {
+                                            val oid = order.id ?: 0
+                                            if (oid > 0) pendingOrderActionMessages = pendingOrderActionMessages + (oid to "종목 전체 접수취소 처리 중...")
+                                        }
+                                        vm.cancelPendingOrder(orderId = order.id ?: 0, environment = environment)
+                                    },
+                                    onCancelAllPendingOrders = { vm.cancelAllPendingOrders(environment = environment, maxCount = 20) },
+                                )
+                            }
+                        }
+                        item {
+                            AutoTradeCollapsibleCard(
+                                title = "예약내역",
+                                summary = buildReservationSummary(
+                                    visibleReservationCount = pendingReservations.size,
+                                    latestAt = pendingReservations.firstOrNull()?.let { it.updatedAt ?: it.requestedAt },
+                                ),
+                                expanded = showReservations,
+                                onToggle = { showReservations = !showReservations },
+                            ) {
+                                AutoTradeReservationsCenterCard(
                                     pendingReservations = pendingReservations,
+                                    otherEnvironmentPendingCount = otherEnvPendingReservationCount,
+                                    otherEnvironmentPendingSummary = otherEnvPendingSummary,
+                                    reservationQuoteMap = reservationQuotes,
                                     environment = environment,
                                     loading = ordersState.loading || reservationsState.loading,
-                                    actionLoading = reservationActionState.loading || orderCancelState.loading || pendingCancelState.loading,
+                                    actionLoading = reservationActionState.loading ||
+                                        reservationPendingCancelState.loading ||
+                                        orderCancelState.loading ||
+                                        pendingCancelState.loading,
+                                    reservationItemActionLoadingKey = reservationItemActionLoadingKey,
+                                    reservationItemActionMessages = reservationItemActionMessages,
                                     onConfirmReservation = { reservationId -> vm.confirmReservation(reservationId) },
                                     onCancelReservation = { reservationId -> vm.cancelReservation(reservationId) },
-                                    onCancelPendingOrder = { orderId -> vm.cancelPendingOrder(orderId = orderId, environment = environment) },
-                                    onCancelAllPendingOrders = { vm.cancelAllPendingOrders(environment = environment, maxCount = 100) },
+                                    onCancelAllPendingReservations = {
+                                        vm.cancelAllPendingReservations(environment = environment, maxCount = 200)
+                                    },
+                                    onCancelReservationItem = { reservationId, ticker ->
+                                        val key = "${reservationId}:${normalizeTicker(ticker)}"
+                                        reservationItemActionLoadingKey = key
+                                        reservationItemActionMessages = reservationItemActionMessages + (key to "취소 요청 전송 중...")
+                                        vm.cancelReservationItem(reservationId = reservationId, ticker = ticker)
+                                    },
                                 )
                             }
                         }
@@ -794,6 +988,7 @@ fun AutoTradeScreen(
                                     failedOrders = failedOrders,
                                     skippedOrders = skippedOrders,
                                     closedReservations = closedReservations,
+                                    reservationQuoteMap = reservationQuotes,
                                     loading = ordersState.loading || reservationsState.loading,
                                 )
                             }
@@ -1002,13 +1197,20 @@ private fun buildExecutionSummary(
 
 private fun buildPendingSummary(
     pendingOrderCount: Int,
-    pendingReservationCount: Int,
     latestAt: String?,
 ): String {
-    val total = pendingOrderCount + pendingReservationCount
-    if (total <= 0) return "진행중 주문 없음"
+    if (pendingOrderCount <= 0) return "진행중 주문 없음"
     val latest = compactTimeLabel(latestAt)
-    return "미체결 ${pendingOrderCount}건 · 예약 ${pendingReservationCount}건 · 최신 $latest"
+    return "지금 취소 가능 ${pendingOrderCount}건 · 최신 $latest"
+}
+
+private fun buildReservationSummary(
+    visibleReservationCount: Int,
+    latestAt: String?,
+): String {
+    if (visibleReservationCount <= 0) return "예약 주문 없음"
+    val latest = compactTimeLabel(latestAt)
+    return "다음 세션 실행 예정 ${visibleReservationCount}건 · 최신 $latest"
 }
 
 private fun buildSkippedSummary(
@@ -2047,78 +2249,120 @@ private fun AutoTradeExecutionTimelineCard(
 @Composable
 private fun AutoTradePendingCenterCard(
     pendingOrders: List<AutoTradeOrderItemDto>,
-    pendingReservations: List<AutoTradeReservationItemDto>,
-    environment: String,
     loading: Boolean,
     actionLoading: Boolean,
-    onConfirmReservation: (Int) -> Unit,
-    onCancelReservation: (Int) -> Unit,
-    onCancelPendingOrder: (Int) -> Unit,
+    pendingOrderCancelingId: Int?,
+    pendingOrderActionMessages: Map<Int, String>,
+    onCancelPendingOrder: (AutoTradeOrderItemDto) -> Unit,
     onCancelAllPendingOrders: () -> Unit,
 ) {
     val orderCards = toOrderItems(pendingOrders)
     val cancelableOrderCount = pendingOrders.count { (it.id ?: 0) > 0 }
     CommonFilterCard(title = "진행중/미체결 주문") {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (loading && pendingOrders.isEmpty() && pendingReservations.isEmpty()) {
+            if (loading && pendingOrders.isEmpty()) {
                 Text("진행 상태를 불러오는 중...", style = MaterialTheme.typography.bodySmall, color = Color(0xFF64748B))
-                return@Column
-            }
-            if (pendingOrders.isEmpty() && pendingReservations.isEmpty()) {
-                Text("진행중 주문이 없습니다.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF6B7280))
-                return@Column
             }
 
-            if (pendingOrders.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "체결 대기 주문 ${pendingOrders.size}건",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF0F172A),
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    if (cancelableOrderCount > 1) {
-                        TextButton(
-                            onClick = onCancelAllPendingOrders,
-                            enabled = !actionLoading,
-                        ) { Text("전체 접수 취소") }
-                    }
-                }
-                pendingOrders.zip(orderCards).forEach { (order, card) ->
-                    AutoTradeTickerCard(item = card, origin = "자동매매_미체결주문")
-                    val orderId = order.id ?: 0
-                    if (orderId > 0) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                        ) {
-                            TextButton(
-                                onClick = { onCancelPendingOrder(orderId) },
-                                enabled = !actionLoading,
-                            ) { Text("접수 취소") }
-                        }
-                    }
-                }
-            }
-
-            if (pendingReservations.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    "예약 주문 (${if (environment == "prod") "실전" else "모의"})",
+                    "지금 취소 가능 ${cancelableOrderCount}건",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF0F172A),
                     fontWeight = FontWeight.SemiBold,
                 )
+                if (cancelableOrderCount > 1) {
+                    TextButton(
+                        onClick = onCancelAllPendingOrders,
+                        enabled = !actionLoading,
+                    ) { Text("전체 접수 취소") }
+                }
+            }
+            if (pendingOrders.isEmpty()) {
+                Text("체결 대기 주문이 없습니다.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF6B7280))
+            } else {
+                pendingOrders.zip(orderCards).forEach { (order, card) ->
+                    val orderId = order.id ?: 0
+                    AutoTradeTickerCard(
+                        item = card,
+                        origin = "자동매매_미체결주문",
+                        actionLabel = if (orderId > 0) "종목 전체 취소" else null,
+                        actionLoading = (pendingOrderCancelingId == orderId) && actionLoading,
+                        actionEnabled = !actionLoading && orderId > 0,
+                        actionMessage = if (orderId > 0) pendingOrderActionMessages[orderId] else null,
+                        onActionClick = if (orderId > 0) ({ onCancelPendingOrder(order) }) else null,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AutoTradeReservationsCenterCard(
+    pendingReservations: List<AutoTradeReservationItemDto>,
+    otherEnvironmentPendingCount: Int,
+    otherEnvironmentPendingSummary: String,
+    reservationQuoteMap: Map<String, RealtimeQuoteItemDto>,
+    environment: String,
+    loading: Boolean,
+    actionLoading: Boolean,
+    reservationItemActionLoadingKey: String?,
+    reservationItemActionMessages: Map<String, String>,
+    onConfirmReservation: (Int) -> Unit,
+    onCancelReservation: (Int) -> Unit,
+    onCancelAllPendingReservations: () -> Unit,
+    onCancelReservationItem: (Int, String) -> Unit,
+) {
+    val cancelableReservationCount = pendingReservations.count { (it.id ?: 0) > 0 }
+    CommonFilterCard(title = "예약 주문") {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (loading && pendingReservations.isEmpty()) {
+                Text("예약 상태를 불러오는 중...", style = MaterialTheme.typography.bodySmall, color = Color(0xFF64748B))
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "다음 세션 실행 예정 ${pendingReservations.size}건",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF0F172A),
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (cancelableReservationCount > 1) {
+                    TextButton(
+                        onClick = onCancelAllPendingReservations,
+                        enabled = !actionLoading,
+                    ) { Text("예약 전체 취소") }
+                }
+            }
+            if (otherEnvironmentPendingCount > 0) {
+                Text(
+                    "다른 환경 예약 ${otherEnvironmentPendingCount}건${if (otherEnvironmentPendingSummary.isNotBlank()) " · $otherEnvironmentPendingSummary" else ""}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF64748B),
+                )
+            }
+            if (pendingReservations.isEmpty()) {
+                Text("예약된 주문이 없습니다.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF6B7280))
+            } else {
                 pendingReservations.forEach { reservation ->
                     AutoTradeReservationStatusCard(
                         reservation = reservation,
+                        quoteMap = reservationQuoteMap,
                         showActions = true,
                         actionLoading = actionLoading,
+                        itemActionLoadingKey = reservationItemActionLoadingKey,
+                        itemActionMessages = reservationItemActionMessages,
                         onConfirmReservation = onConfirmReservation,
                         onCancelReservation = onCancelReservation,
+                        onCancelReservationItem = onCancelReservationItem,
                     )
                 }
             }
@@ -2131,6 +2375,7 @@ private fun AutoTradeSkippedCenterCard(
     failedOrders: List<AutoTradeOrderItemDto>,
     skippedOrders: List<AutoTradeOrderItemDto>,
     closedReservations: List<AutoTradeReservationItemDto>,
+    reservationQuoteMap: Map<String, RealtimeQuoteItemDto>,
     loading: Boolean,
 ) {
     val failedCards = toOrderItems(failedOrders)
@@ -2165,10 +2410,14 @@ private fun AutoTradeSkippedCenterCard(
                 closedReservations.forEach { reservation ->
                     AutoTradeReservationStatusCard(
                         reservation = reservation,
+                        quoteMap = reservationQuoteMap,
                         showActions = false,
                         actionLoading = false,
+                        itemActionLoadingKey = null,
+                        itemActionMessages = emptyMap(),
                         onConfirmReservation = {},
                         onCancelReservation = {},
+                        onCancelReservationItem = { _, _ -> },
                     )
                 }
             }
@@ -2179,13 +2428,18 @@ private fun AutoTradeSkippedCenterCard(
 @Composable
 private fun AutoTradeReservationStatusCard(
     reservation: AutoTradeReservationItemDto,
+    quoteMap: Map<String, RealtimeQuoteItemDto>,
     showActions: Boolean,
     actionLoading: Boolean,
+    itemActionLoadingKey: String?,
+    itemActionMessages: Map<String, String>,
     onConfirmReservation: (Int) -> Unit,
     onCancelReservation: (Int) -> Unit,
+    onCancelReservationItem: (Int, String) -> Unit,
 ) {
     val reservationId = reservation.id ?: 0
     val statusLabel = reservationStatusLabel(reservation.status)
+    val kindLabel = reservationKindLabel(reservation.kind)
     val statusColor = when (reservation.status?.uppercase()) {
         "QUEUED", "WAIT_CONFIRM", "RUNNING" -> Color(0xFF1D4ED8)
         "DONE" -> Color(0xFF166534)
@@ -2193,8 +2447,12 @@ private fun AutoTradeReservationStatusCard(
         else -> Color(0xFF7F1D1D)
     }
     val previewItems = reservation.previewItems.orEmpty()
-    val previewCards = toReservationPreviewItems(previewItems)
+    val previewCards = toReservationPreviewItems(previewItems, quoteMap)
     val previewCount = reservation.previewCount ?: previewItems.size
+    val mergedRequestCount = previewItems.mapNotNull { it.mergedCount }.maxOrNull()?.coerceAtLeast(1) ?: 1
+    var previewExpanded by rememberSaveable("reservation_preview_expanded_${reservationId}") { mutableStateOf(false) }
+    val collapsedCount = 5
+    val visiblePreviewCards = if (previewExpanded) previewCards else previewCards.take(collapsedCount)
     val result = reservation.resultSummary
     val canConfirm = showActions && reservation.status?.uppercase() == "WAIT_CONFIRM" && reservationId > 0
     val canCancel = showActions && reservation.status?.uppercase() in setOf("QUEUED", "WAIT_CONFIRM", "RUNNING") && reservationId > 0
@@ -2211,7 +2469,7 @@ private fun AutoTradeReservationStatusCard(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                "예약 #$reservationId · $statusLabel",
+                "$kindLabel #$reservationId · $statusLabel",
                 style = MaterialTheme.typography.bodySmall,
                 color = statusColor,
                 fontWeight = FontWeight.SemiBold,
@@ -2235,15 +2493,42 @@ private fun AutoTradeReservationStatusCard(
                     color = Color(0xFF334155),
                     fontWeight = FontWeight.SemiBold,
                 )
-                previewCards.forEach { item ->
-                    AutoTradeTickerCard(item = item, origin = "자동매매_예약대상")
-                }
-                if (previewCount > previewCards.size) {
+                if (mergedRequestCount > 1) {
                     Text(
-                        "외 ${previewCount - previewCards.size}개",
+                        "중복 실행 요청 누적 ${mergedRequestCount}회 병합",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF64748B),
+                        color = Color(0xFF334155),
                     )
+                }
+                visiblePreviewCards.forEach { item ->
+                    val itemTicker = normalizeTicker(item.ticker)
+                    val itemKey = "${reservationId}:${itemTicker}"
+                    val canItemCancel = showActions && canCancel && reservationId > 0 && itemTicker.isNotBlank()
+                    AutoTradeTickerCard(
+                        item = item,
+                        origin = "자동매매_예약대상",
+                        actionLabel = if (canItemCancel) "개별취소" else null,
+                        actionLoading = canItemCancel && itemActionLoadingKey == itemKey,
+                        actionEnabled = canItemCancel && !actionLoading,
+                        actionMessage = itemActionMessages[itemKey],
+                        onActionClick = if (canItemCancel) ({ onCancelReservationItem(reservationId, itemTicker) }) else null,
+                    )
+                }
+                if (previewCards.size > collapsedCount) {
+                    val hiddenCount = (previewCards.size - visiblePreviewCards.size).coerceAtLeast(0)
+                    TextButton(
+                        onClick = { previewExpanded = !previewExpanded },
+                        enabled = !actionLoading,
+                    ) {
+                        Text(
+                            if (previewExpanded) {
+                                "예약 종목 접기 (${visiblePreviewCards.size}/${previewCards.size})"
+                            } else {
+                                "예약 종목 펼치기 (+${hiddenCount}개 더 보기)"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
             }
             if (result != null) {
@@ -2348,6 +2633,11 @@ private fun AutoTradeCandidateListCard(
 private fun AutoTradeTickerCard(
     item: CommonReportItemUi,
     origin: String,
+    actionLabel: String? = null,
+    actionLoading: Boolean = false,
+    actionEnabled: Boolean = true,
+    actionMessage: String? = null,
+    onActionClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val ticker = item.ticker.orEmpty()
@@ -2364,7 +2654,39 @@ private fun AutoTradeTickerCard(
             )
         }
     }
-    CommonReportItemCard(item = item, onClick = onClick)
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        CommonReportItemCard(item = item, onClick = onClick)
+        if (!actionLabel.isNullOrBlank() && onActionClick != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    onClick = onActionClick,
+                    enabled = actionEnabled && !actionLoading,
+                ) {
+                    Text(
+                        text = if (actionLoading) "처리중..." else actionLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+        if (!actionMessage.isNullOrBlank()) {
+            Text(
+                text = actionMessage,
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF475569),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
 }
 
 @Composable
@@ -2676,7 +2998,7 @@ private fun isOrderFailed(raw: String?): Boolean = when (raw?.trim()?.uppercase(
 }
 
 private fun isOrderSkipped(raw: String?): Boolean = when (raw?.trim()?.uppercase()) {
-    "SKIPPED", "BROKER_CANCELED" -> true
+    "SKIPPED", "BROKER_CANCELED", "BROKER_CLOSED" -> true
     else -> false
 }
 
@@ -2706,6 +3028,11 @@ private fun reservationStatusLabel(raw: String?): String = when (raw?.trim()?.up
     else -> "예약 상태 확인 필요"
 }
 
+private fun reservationKindLabel(raw: String?): String = when (raw?.trim()?.uppercase()) {
+    "ORDER_CANCEL" -> "접수취소 예약"
+    else -> "주문 예약"
+}
+
 private fun isOrderPositionRelevant(raw: String?): Boolean = when (raw?.trim()?.uppercase()) {
     "PAPER_FILLED", "BROKER_FILLED", "BROKER_SUBMITTED" -> true
     else -> false
@@ -2716,22 +3043,54 @@ private fun compactTimeLabel(raw: String?): String {
     return raw.replace("T", " ").replace("Z", "").take(16)
 }
 
-private fun toReservationPreviewItems(rows: List<com.example.stock.data.api.AutoTradeReservationPreviewItemDto>): List<CommonReportItemUi> {
-    return rows.take(3).map { row ->
+private fun toReservationPreviewItems(
+    rows: List<com.example.stock.data.api.AutoTradeReservationPreviewItemDto>,
+    quoteMap: Map<String, RealtimeQuoteItemDto>,
+): List<CommonReportItemUi> {
+    return rows.map { row ->
         val ticker = normalizeTicker(row.ticker)
         val name = row.name?.takeIf { it.isNotBlank() } ?: ticker
+        val quote = quoteMap[ticker]
+        val fallbackPrice = quote?.price ?: row.currentPrice ?: row.plannedPrice ?: row.signalPrice
+        val fallbackChangePct = quote?.chgPct ?: row.chgPct
+        val plannedQty = (row.plannedQty ?: 0).coerceAtLeast(0)
+        val plannedPrice = row.plannedPrice
+        val plannedAmount = row.plannedAmountKrw
+        val orderType = row.orderType?.trim()?.uppercase()
+        val mergedCount = (row.mergedCount ?: 1).coerceAtLeast(1)
+        val metrics = mutableListOf<MetricUi>()
+        if (plannedQty > 0) {
+            metrics += MetricUi("예정수량", plannedQty.toDouble(), formatted = "${plannedQty}주")
+        }
+        if (plannedPrice != null && plannedPrice > 0.0) {
+            metrics += MetricUi("예정가", plannedPrice, formatted = formatWon(plannedPrice))
+        }
+        if (plannedAmount != null && plannedAmount > 0.0) {
+            metrics += MetricUi("예정금액", plannedAmount, formatted = formatWon(plannedAmount))
+        }
+        if (metrics.isEmpty()) {
+            row.signalPrice?.let { metrics += MetricUi("신호가", it, formatted = formatWon(it)) }
+            fallbackPrice?.let { metrics += MetricUi("현재가", it, formatted = formatWon(it)) }
+        }
+        val extra = mutableListOf("소스: ${sourceLabel(row.sourceTab)}")
+        if (!orderType.isNullOrBlank()) {
+            extra += "주문유형: ${if (orderType == "MARKET") "시장가" else "지정가"}"
+        }
+        if (mergedCount > 1) {
+            extra += "중복요청 병합 ${mergedCount}회"
+        }
         CommonReportItemUi(
             ticker = ticker,
             name = name,
             title = "$name ($ticker)",
-            quote = null,
-            fallbackPrice = null,
-            fallbackChangePct = null,
-            fallbackLabel = null,
-            metrics = emptyList(),
-            extraLines = listOf("소스: ${sourceLabel(row.sourceTab)}"),
-            sortPrice = null,
-            sortChangePct = null,
+            quote = quote,
+            fallbackPrice = fallbackPrice,
+            fallbackChangePct = fallbackChangePct,
+            fallbackLabel = "등락%",
+            metrics = metrics,
+            extraLines = extra,
+            sortPrice = fallbackPrice,
+            sortChangePct = fallbackChangePct,
             sortName = name,
         )
     }

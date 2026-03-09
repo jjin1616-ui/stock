@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from fastapi import FastAPI, Query, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse, FileResponse, HTMLResponse
 from sqlalchemy import desc, select, func, or_
+from sqlalchemy.exc import OperationalError
 import requests
 
 from app.config import settings
@@ -45,7 +46,7 @@ from app.realtime_quotes import fetch_quotes
 from app.movers import compute_movers
 from app.movers2 import compute_movers2
 from app.us_insiders import compute_us_insider_screen, normalize_transaction_codes
-from app.storage import session_scope, init_db, ensure_schema
+from app.storage import session_scope, init_db, ensure_schema, SessionLocal
 from engine.krx_api import KrxApiConfig, fetch_daily_market
 from app.schemas import (
     AlertHistoryItem,
@@ -132,6 +133,8 @@ from app.schemas import (
     AutoTradeOrderCancelResponse,
     AutoTradePendingCancelRequest,
     AutoTradePendingCancelResponse,
+    AutoTradeReservationPendingCancelRequest,
+    AutoTradeReservationPendingCancelResponse,
     AutoTradeReentryBlockItem,
     AutoTradeReentryBlocksResponse,
     AutoTradeReentryReleaseRequest,
@@ -217,6 +220,7 @@ from app.autotrade_service import (
     _build_pnl_snapshot,
     build_autotrade_candidates,
     get_or_create_autotrade_setting,
+    invalidate_autotrade_candidate_build_cache,
     list_active_reentry_blocks,
     recompute_daily_metric,
     release_reentry_blocks,
@@ -225,9 +229,12 @@ from app.autotrade_service import (
 )
 from app.autotrade_reservation import (
     cancel_reservation,
+    cancel_reservation_preview_item,
     confirm_reservation_execute,
     current_market_phase,
+    enqueue_manual_order_reservation,
     enqueue_reservation,
+    enqueue_order_cancel_reservation,
     reservation_item_payload,
 )
 from app.autotrade_reason_codes import normalize_reason_code
@@ -257,10 +264,31 @@ _AUTOTRADE_ACCOUNT_TTL_SECONDS = max(3, min(60, int(os.getenv("AUTOTRADE_ACCOUNT
 _AUTOTRADE_CANDIDATES_CACHE: dict[str, tuple[datetime, AutoTradeCandidatesResponse]] = {}
 _AUTOTRADE_CANDIDATES_CACHE_LOCK = Lock()
 _AUTOTRADE_CANDIDATES_TTL_SECONDS = max(5, min(90, int(os.getenv("AUTOTRADE_CANDIDATES_TTL_SECONDS", "20"))))
+_AUTOTRADE_CANDIDATES_INITIAL_TTL_SECONDS = max(
+    _AUTOTRADE_CANDIDATES_TTL_SECONDS,
+    min(180, int(os.getenv("AUTOTRADE_CANDIDATES_INITIAL_TTL_SECONDS", "45"))),
+)
+_AUTOTRADE_RUN_GUARD_LOCK = Lock()
+_AUTOTRADE_RUN_GUARD_RUNNING: set[tuple[int, str]] = set()
 
 
 def _autotrade_account_cache_key(user_id: int, environment: str) -> str:
     return f"{int(user_id)}:{str(environment).strip().lower()}"
+
+
+def _autotrade_run_guard_acquire(user_id: int, environment: str) -> bool:
+    key = (int(user_id), str(environment or "").strip().lower() or "demo")
+    with _AUTOTRADE_RUN_GUARD_LOCK:
+        if key in _AUTOTRADE_RUN_GUARD_RUNNING:
+            return False
+        _AUTOTRADE_RUN_GUARD_RUNNING.add(key)
+    return True
+
+
+def _autotrade_run_guard_release(user_id: int, environment: str) -> None:
+    key = (int(user_id), str(environment or "").strip().lower() or "demo")
+    with _AUTOTRADE_RUN_GUARD_LOCK:
+        _AUTOTRADE_RUN_GUARD_RUNNING.discard(key)
 
 
 def _get_cached_autotrade_account_snapshot(user_id: int, environment: str) -> AutoTradeAccountSnapshotResponse | None:
@@ -320,14 +348,19 @@ def _autotrade_candidates_cache_key(
     return f"{int(user_id)}:{int(limit)}:{profile_mode}:{updated_key}:{flags}"
 
 
-def _get_cached_autotrade_candidates(cache_key: str) -> AutoTradeCandidatesResponse | None:
+def _get_cached_autotrade_candidates(cache_key: str, profile_mode: str) -> AutoTradeCandidatesResponse | None:
     with _AUTOTRADE_CANDIDATES_CACHE_LOCK:
         hit = _AUTOTRADE_CANDIDATES_CACHE.get(cache_key)
     if hit is None:
         return None
     cached_at, payload = hit
     age_sec = (datetime.now(tz=SEOUL) - cached_at).total_seconds()
-    if age_sec > _AUTOTRADE_CANDIDATES_TTL_SECONDS:
+    ttl_sec = (
+        _AUTOTRADE_CANDIDATES_INITIAL_TTL_SECONDS
+        if str(profile_mode or "").strip().lower() == "initial"
+        else _AUTOTRADE_CANDIDATES_TTL_SECONDS
+    )
+    if age_sec > ttl_sec:
         return None
     return payload.model_copy(deep=True)
 
@@ -343,6 +376,7 @@ def _invalidate_autotrade_candidates_cache(user_id: int) -> None:
         keys = [k for k in _AUTOTRADE_CANDIDATES_CACHE if k.startswith(prefix)]
         for k in keys:
             _AUTOTRADE_CANDIDATES_CACHE.pop(k, None)
+    invalidate_autotrade_candidate_build_cache(user_id)
 
 
 @app.api_route("/apk/download", methods=["GET", "HEAD"])
@@ -576,6 +610,79 @@ _PUSH_ALLOWED_ROUTES = {
     "eod",
     "alerts",
 }
+
+
+def _is_sqlite_lock_error(exc: Exception) -> bool:
+    text = str(exc or "").lower()
+    return "database is locked" in text or "database table is locked" in text
+
+
+def _autotrade_db_lock_message(action: str) -> str:
+    return f"{action} 처리 중 데이터베이스 경합이 발생했습니다. 잠시 후 다시 시도해 주세요."
+
+
+def _is_market_time_block_message(message: str | None) -> bool:
+    text = str(message or "").strip().lower()
+    if not text:
+        return False
+    keywords = (
+        "장종료",
+        "장 시작",
+        "장시작",
+        "장전",
+        "장후",
+        "장시간",
+        "주문가능시간",
+        "시간외",
+        "market_closed",
+        "market_preopen",
+        "market_afterhours",
+        "40580000",
+        "40581000",
+        "40582000",
+    )
+    return any(key in text for key in keywords)
+
+
+def _market_phase_user_label(phase: str | None) -> str:
+    up = str(phase or "").strip().upper()
+    if up == "OPEN":
+        return "장중"
+    if up == "PREOPEN":
+        return "장 시작 전"
+    if up == "BREAK":
+        return "장중 휴장 구간"
+    if up == "CLOSED":
+        return "장 마감 후"
+    if up == "HOLIDAY":
+        return "휴장 시간"
+    return "장시간 외"
+
+
+def _load_order_item_for_user(user_id: int, order_id: int) -> AutoTradeOrderItem | None:
+    session = SessionLocal()
+    try:
+        row = session.get(AutoTradeOrder, int(order_id))
+        if row is None or int(row.user_id) != int(user_id):
+            return None
+        return _autotrade_order_item(row)
+    except Exception:
+        return None
+    finally:
+        session.close()
+
+
+def _load_reservation_item_for_user(user_id: int, reservation_id: int) -> AutoTradeReservationItem | None:
+    session = SessionLocal()
+    try:
+        row = session.get(AutoTradeReservation, int(reservation_id))
+        if row is None or int(row.user_id) != int(user_id):
+            return None
+        return _autotrade_reservation_item(row)
+    except Exception:
+        return None
+    finally:
+        session.close()
 
 
 def _normalize_user_code_input(raw: str | None, *, required: bool = False) -> str | None:
@@ -932,6 +1039,10 @@ def _build_local_account_estimate(
         total_asset_krw=float(total_asset_krw),
         realized_pnl_krw=realized_pnl_krw,
         unrealized_pnl_krw=unrealized_pnl_krw,
+        real_eval_pnl_krw=unrealized_pnl_krw,
+        real_eval_pnl_pct=((unrealized_pnl_krw / stock_eval_krw) * 100.0) if stock_eval_krw > 0.0 else 0.0,
+        asset_change_krw=None,
+        asset_change_pct=None,
         positions=estimate_positions,
         message=message,
         updated_at=now(),
@@ -957,6 +1068,7 @@ def _resolve_autotrade_account_snapshot(
     cfg: AutoTradeSetting,
     broker_status: dict[str, Any],
     environment: str | None = None,
+    allow_live_fetch: bool = True,
 ) -> AutoTradeAccountSnapshotResponse:
     env = _autotrade_account_env(environment) if environment is not None else _autotrade_account_env(getattr(cfg, "environment", "demo"))
     cached = _get_cached_autotrade_account_snapshot(user_id, env)
@@ -971,6 +1083,27 @@ def _resolve_autotrade_account_snapshot(
     elif env == "prod":
         broker_ready = bool(broker_status.get("prod_ready_effective"))
     broker_live_possible = env in {"demo", "prod"} and kis_enabled and broker_ready
+
+    if broker_live_possible and (not bool(allow_live_fetch)):
+        return AutoTradeAccountSnapshotResponse(
+            environment=env,  # type: ignore[arg-type]
+            source="UNAVAILABLE",
+            broker_connected=False,
+            account_no_masked=account_no_masked,
+            cash_krw=None,
+            orderable_cash_krw=None,
+            stock_eval_krw=None,
+            total_asset_krw=None,
+            realized_pnl_krw=None,
+            unrealized_pnl_krw=None,
+            real_eval_pnl_krw=None,
+            real_eval_pnl_pct=None,
+            asset_change_krw=None,
+            asset_change_pct=None,
+            positions=[],
+            message="BROKER_SYNC_PENDING: 계좌 동기화 중입니다. 잠시 후 자동 갱신됩니다.",
+            updated_at=now(),
+        )
 
     if broker_live_possible:
         user_creds, use_user_creds = resolve_user_kis_credentials(session, user_id)
@@ -1001,8 +1134,28 @@ def _resolve_autotrade_account_snapshot(
                     orderable_cash_krw=float(bal.snapshot.orderable_cash_amount),
                     stock_eval_krw=float(bal.snapshot.stock_eval_amount),
                     total_asset_krw=float(bal.snapshot.total_asset_amount),
-                    realized_pnl_krw=None,
+                    realized_pnl_krw=float(bal.snapshot.realized_pnl_amount or 0.0),
                     unrealized_pnl_krw=float(bal.snapshot.total_pnl_amount),
+                    real_eval_pnl_krw=float(
+                        bal.snapshot.real_eval_pnl_amount
+                        if bal.snapshot.real_eval_pnl_amount is not None
+                        else bal.snapshot.total_pnl_amount
+                    ),
+                    real_eval_pnl_pct=float(
+                        bal.snapshot.real_eval_pnl_rate
+                        if bal.snapshot.real_eval_pnl_rate is not None
+                        else 0.0
+                    ),
+                    asset_change_krw=(
+                        float(bal.snapshot.asset_change_amount)
+                        if bal.snapshot.asset_change_amount is not None
+                        else None
+                    ),
+                    asset_change_pct=(
+                        float(bal.snapshot.asset_change_rate)
+                        if bal.snapshot.asset_change_rate is not None
+                        else None
+                    ),
                     positions=live_positions,
                     message=None,
                     updated_at=now(),
@@ -1032,6 +1185,10 @@ def _resolve_autotrade_account_snapshot(
             total_asset_krw=None,
             realized_pnl_krw=None,
             unrealized_pnl_krw=None,
+            real_eval_pnl_krw=None,
+            real_eval_pnl_pct=None,
+            asset_change_krw=None,
+            asset_change_pct=None,
             positions=[],
             message=live_error,
             updated_at=now(),
@@ -2173,7 +2330,7 @@ def _normalize_order_reason_code(status: str, reason: str) -> str:
     return normalize_reason_code(status, reason)
 
 
-def _autotrade_reason_detail(row: AutoTradeOrder, meta: dict[str, Any]) -> AutoTradeReasonDetail | None:
+def _autotrade_reason_detail(row: AutoTradeOrder, meta: dict[str, Any]) -> AutoTradeReasonDetail:
     status = str(getattr(row, "status", "") or "").strip()
     reason = str(getattr(row, "reason", "") or "").strip()
     code = _normalize_order_reason_code(status, reason)
@@ -2219,6 +2376,11 @@ def _autotrade_reason_detail(row: AutoTradeOrder, meta: dict[str, Any]) -> AutoT
     if code == "PENDING_BUY_ORDER":
         evidence["종목"] = str(getattr(row, "ticker", "") or "-")
         evidence["보호시간"] = f"{int(_to_float_or_none(meta.get('pending_guard_sec')) or 0)}초"
+        if int(_to_float_or_none(meta.get("existing_order_id")) or 0) > 0:
+            evidence["기존주문ID"] = str(int(_to_float_or_none(meta.get("existing_order_id")) or 0))
+        existing_order_no = str(meta.get("existing_broker_order_no") or "").strip()
+        if existing_order_no:
+            evidence["기존주문번호"] = existing_order_no
         return AutoTradeReasonDetail(
             conclusion="동일 종목 매수 주문이 접수 대기 중이라 중복 진입을 건너뛰었습니다.",
             reason_code=code,
@@ -2229,6 +2391,11 @@ def _autotrade_reason_detail(row: AutoTradeOrder, meta: dict[str, Any]) -> AutoT
         evidence["종목"] = str(getattr(row, "ticker", "") or "-")
         evidence["보호시간"] = f"{int(_to_float_or_none(meta.get('pending_guard_sec')) or 0)}초"
         evidence["매도가능수량"] = _fmt_qty(meta.get("sellable_qty"))
+        if int(_to_float_or_none(meta.get("existing_order_id")) or 0) > 0:
+            evidence["기존주문ID"] = str(int(_to_float_or_none(meta.get("existing_order_id")) or 0))
+        existing_order_no = str(meta.get("existing_broker_order_no") or "").strip()
+        if existing_order_no:
+            evidence["기존주문번호"] = existing_order_no
         return AutoTradeReasonDetail(
             conclusion="동일 종목 매도 주문이 접수 대기 중이라 중복 청산을 건너뛰었습니다.",
             reason_code=code,
@@ -2371,7 +2538,59 @@ def _autotrade_reason_detail(row: AutoTradeOrder, meta: dict[str, Any]) -> AutoT
             evidence=evidence,
             action="증권사 원문 사유를 확인 후 수량/가격/시간을 조정해 재시도하세요.",
         )
-    return None
+    status_u = str(status or "").strip().upper()
+    fallback_code = str(code or status_u or "UNKNOWN").strip().upper()
+    if fallback_code == "UNKNOWN":
+        fallback_code = status_u or "UNKNOWN"
+    if not re.fullmatch(r"[A-Z0-9_]+", fallback_code):
+        fallback_code = status_u or "UNKNOWN"
+
+    if status_u == "BROKER_SUBMITTED":
+        evidence["요청수량"] = _fmt_qty(getattr(row, "qty", None))
+        evidence["요청가격"] = _fmt_krw(getattr(row, "requested_price", None))
+        evidence["증권사주문번호"] = str(getattr(row, "broker_order_no", "") or "-")
+        return AutoTradeReasonDetail(
+            conclusion="증권사 주문이 접수되었습니다. 체결 대기 중입니다.",
+            reason_code=fallback_code,
+            evidence=evidence,
+            action="진행중/미체결 섹션에서 체결·거부·취소 상태를 확인하세요.",
+        )
+    if status_u in {"BROKER_FILLED", "PAPER_FILLED"}:
+        evidence["체결수량"] = _fmt_qty(getattr(row, "qty", None))
+        evidence["체결가격"] = _fmt_krw(getattr(row, "filled_price", None) or getattr(row, "requested_price", None))
+        return AutoTradeReasonDetail(
+            conclusion="주문이 체결 완료되었습니다.",
+            reason_code=fallback_code,
+            evidence=evidence,
+            action="체결내역과 보유 포지션을 확인하세요.",
+        )
+    if status_u in {"BROKER_CANCELED", "BROKER_CLOSED"}:
+        evidence["증권사주문번호"] = str(getattr(row, "broker_order_no", "") or "-")
+        if reason:
+            evidence["증권사원문"] = reason
+        return AutoTradeReasonDetail(
+            conclusion="접수취소가 반영되어 취소 대상에서 정리되었습니다.",
+            reason_code=fallback_code,
+            evidence=evidence,
+            action="진행중 목록에서 제외되었는지 확인하세요.",
+        )
+    if status_u == "ERROR":
+        evidence["원문"] = reason or "에러 사유 미수신"
+        return AutoTradeReasonDetail(
+            conclusion="주문 처리 중 오류가 발생했습니다.",
+            reason_code=fallback_code,
+            evidence=evidence,
+            action="잠시 후 재시도하고 반복되면 로그를 확인하세요.",
+        )
+
+    if reason:
+        evidence["원문"] = reason
+    return AutoTradeReasonDetail(
+        conclusion="주문 조건 미충족으로 이번 주문을 건너뛰었습니다.",
+        reason_code=fallback_code,
+        evidence=evidence,
+        action="코드/근거를 확인해 설정(시드·예산·재진입·차단)을 조정하세요.",
+    )
 
 
 def _autotrade_order_item(row: AutoTradeOrder) -> AutoTradeOrderItem:
@@ -2425,26 +2644,90 @@ def _autotrade_order_environment(row: AutoTradeOrder) -> str | None:
     return None
 
 
+def _find_recent_pending_order(
+    session,
+    *,
+    user_id: int,
+    environment: str,
+    side: str,
+    ticker: str,
+    within_sec: int,
+) -> AutoTradeOrder | None:
+    env = str(environment or "").strip().lower()
+    side_u = "SELL" if str(side or "").strip().upper() == "SELL" else "BUY"
+    tk = _normalize_kr_ticker_strict(ticker)
+    sec = max(1, int(within_sec))
+    cutoff = datetime.now(tz=SEOUL) - timedelta(seconds=sec)
+    rows = (
+        session.query(AutoTradeOrder)
+        .filter(
+            AutoTradeOrder.user_id == int(user_id),
+            AutoTradeOrder.status == "BROKER_SUBMITTED",
+            AutoTradeOrder.side == side_u,
+            AutoTradeOrder.ticker == tk,
+            AutoTradeOrder.requested_at >= cutoff,
+        )
+        .order_by(AutoTradeOrder.requested_at.desc(), AutoTradeOrder.id.desc())
+        .limit(20)
+        .all()
+    )
+    for row in rows:
+        row_env = _autotrade_order_environment(row)
+        if row_env == env:
+            return row
+    return None
+
+
+def _is_cancel_target_missing_message(message: str | None) -> bool:
+    text = str(message or "").strip().lower()
+    if not text:
+        return False
+    keywords = (
+        "원주문번호가 존재하지 않습니다",
+        "원주문번호가 없습니다",
+        "주문번호가 존재하지 않습니다",
+        "주문번호가 없습니다",
+        "존재하지 않는 주문",
+        "order not found",
+        "40320000",
+    )
+    return any(key in text for key in keywords)
+
+
 def _cancel_broker_submitted_order(
     session,
     *,
     user_id: int,
     order_row: AutoTradeOrder,
     fallback_environment: str | None = None,
-) -> tuple[bool, str]:
+) -> tuple[str, str]:
     if str(getattr(order_row, "status", "") or "").strip().upper() != "BROKER_SUBMITTED":
-        return False, "NOT_PENDING_ORDER"
+        return "skipped", "NOT_PENDING_ORDER"
 
     env = _autotrade_order_environment(order_row)
     if env not in {"demo", "prod"}:
         fallback = str(fallback_environment or "").strip().lower()
         env = fallback if fallback in {"demo", "prod"} else None
     if env not in {"demo", "prod"}:
-        return False, "ORDER_ENVIRONMENT_UNRESOLVED"
+        return "failed", "ORDER_ENVIRONMENT_UNRESOLVED"
 
     broker_order_no = str(getattr(order_row, "broker_order_no", "") or "").strip()
     if not broker_order_no:
-        return False, "BROKER_ORDER_NO_MISSING"
+        order_row.status = "BROKER_CLOSED"
+        order_row.reason = "증권사 주문번호가 없어 접수 상태를 종료 처리했습니다."
+        order_row.filled_at = datetime.now(tz=SEOUL)
+        meta = _parse_autotrade_order_meta(order_row)
+        meta["cancel_last"] = {
+            "ok": False,
+            "status_code": 400,
+            "message": "BROKER_ORDER_NO_MISSING",
+            "requested_at": datetime.now(tz=SEOUL).isoformat(),
+            "environment": env,
+            "normalized_result": "CLOSED_WITHOUT_ORDER_NO",
+        }
+        order_row.metadata_json = json.dumps(meta, ensure_ascii=False)
+        session.flush()
+        return "closed", "이미 처리된 주문으로 확인되어 접수 상태를 종료 처리했습니다."
 
     user_creds, use_user_creds = resolve_user_kis_credentials(session, user_id)
     broker = KisBrokerClient(credentials=(user_creds if use_user_creds else None))
@@ -2469,13 +2752,23 @@ def _cancel_broker_submitted_order(
         order_row.status = "BROKER_CANCELED"
         order_row.reason = str(result.message or "사용자 요청으로 접수 취소")
         order_row.filled_at = datetime.now(tz=SEOUL)
+        meta["cancel_last"]["normalized_result"] = "CANCELED"
         order_row.metadata_json = json.dumps(meta, ensure_ascii=False)
         session.flush()
-        return True, order_row.reason or "접수 취소 완료"
+        return "canceled", order_row.reason or "접수 취소 완료"
+
+    if _is_cancel_target_missing_message(result.message):
+        order_row.status = "BROKER_CLOSED"
+        order_row.reason = str(result.message or "취소 대상 주문이 존재하지 않습니다.")
+        order_row.filled_at = datetime.now(tz=SEOUL)
+        meta["cancel_last"]["normalized_result"] = "CLOSED_NOT_FOUND"
+        order_row.metadata_json = json.dumps(meta, ensure_ascii=False)
+        session.flush()
+        return "closed", "이미 체결/취소되어 접수취소 대상이 아닙니다. 증권사 상태로 동기화했습니다."
 
     order_row.metadata_json = json.dumps(meta, ensure_ascii=False)
     session.flush()
-    return False, str(result.message or "증권사 접수 취소 실패")
+    return "failed", str(result.message or "증권사 접수 취소 실패")
 
 
 def _autotrade_reservation_item(row: AutoTradeReservation) -> AutoTradeReservationItem:
@@ -2496,6 +2789,424 @@ def _autotrade_metric_item(row: AutoTradeDailyMetric) -> AutoTradePerformanceIte
         win_rate=float(row.win_rate or 0.0),
         mdd_pct=float(row.mdd_pct or 0.0),
         updated_at=row.updated_at,
+    )
+
+
+def _is_real_filled_order_status(status: str | None) -> bool:
+    return str(status or "").strip().upper() in {"PAPER_FILLED", "BROKER_FILLED"}
+
+
+def _build_autotrade_performance_items_from_orders(
+    session,
+    *,
+    user_id: int,
+    since: date,
+    environment: str | None = None,
+    seed_krw: float = 0.0,
+) -> list[AutoTradePerformanceItem]:
+    env_filter = str(environment or "").strip().lower()
+    if env_filter and env_filter not in {"demo", "prod"}:
+        env_filter = ""
+    allowed_envs = {env_filter} if env_filter else {"demo", "prod"}
+
+    source_rows = (
+        session.query(AutoTradeOrder)
+        .filter(AutoTradeOrder.user_id == int(user_id))
+        .order_by(AutoTradeOrder.requested_at.asc(), AutoTradeOrder.id.asc())
+        .all()
+    )
+    if not source_rows:
+        return []
+    rows: list[AutoTradeOrder] = []
+    for row in source_rows:
+        row_env = _autotrade_order_environment(row) or ""
+        if row_env not in allowed_envs:
+            continue
+        rows.append(row)
+    if not rows:
+        return []
+
+    today = datetime.now(tz=SEOUL).date()
+    if since > today:
+        return []
+    lots_by_ticker: dict[str, list[dict[str, float | int]]] = {}
+    items_asc: list[AutoTradePerformanceItem] = []
+    cumulative_realized_pnl = 0.0
+    cumulative_realized_cost = 0.0
+    cash_balance = float(seed_krw or 0.0)
+    prev_total_asset: float | None = None
+    twr_factor = 1.0
+
+    day_orders_total = 0
+    day_filled_total = 0
+    day_closed_pnl_pct: list[float] = []
+    day_updated_at: datetime | None = None
+
+    def _reset_day_accumulator() -> None:
+        nonlocal day_orders_total, day_filled_total, day_closed_pnl_pct, day_updated_at
+        day_orders_total = 0
+        day_filled_total = 0
+        day_closed_pnl_pct = []
+        day_updated_at = None
+
+    def _finalize_day(day: date) -> None:
+        nonlocal prev_total_asset, twr_factor
+        open_pnl_pcts: list[float] = []
+        buy_amount = 0.0
+        eval_amount = 0.0
+        unrealized = 0.0
+        for ticker, lots in lots_by_ticker.items():
+            active_lots = [lot for lot in lots if int(lot.get("qty") or 0) > 0]
+            if not active_lots:
+                continue
+            total_qty = sum(int(lot.get("qty") or 0) for lot in active_lots)
+            if total_qty <= 0:
+                continue
+            total_cost = sum(float(lot.get("entry_price") or 0.0) * int(lot.get("qty") or 0) for lot in active_lots)
+            if total_cost <= 0.0:
+                continue
+            avg_price = total_cost / float(total_qty)
+            current_candidates = [float(lot.get("current_price") or 0.0) for lot in active_lots if float(lot.get("current_price") or 0.0) > 0.0]
+            current_price = current_candidates[-1] if current_candidates else avg_price
+            pnl_pct = ((current_price / avg_price) - 1.0) * 100.0 if avg_price > 0.0 else 0.0
+            open_pnl_pcts.append(pnl_pct)
+            buy_amount += total_cost
+            eval_amount += current_price * float(total_qty)
+            unrealized += (current_price - avg_price) * float(total_qty)
+
+        pnl_samples = open_pnl_pcts + day_closed_pnl_pct
+        wins = sum(1 for x in pnl_samples if x > 0.0)
+        win_rate = (wins / len(pnl_samples)) if pnl_samples else 0.0
+        min_pnl_pct = min(pnl_samples) if pnl_samples else 0.0
+        mdd_pct = abs(min(0.0, min_pnl_pct))
+        base_amount = buy_amount + cumulative_realized_cost
+        total_pnl = cumulative_realized_pnl + unrealized
+        roi_pct = ((total_pnl / base_amount) * 100.0) if base_amount > 0.0 else 0.0
+        total_asset = cash_balance + eval_amount
+        if prev_total_asset is not None and prev_total_asset > 0.0:
+            today_pnl = total_asset - prev_total_asset
+            daily_return_pct = (today_pnl / prev_total_asset) * 100.0
+            twr_factor *= (1.0 + (daily_return_pct / 100.0))
+        else:
+            today_pnl = 0.0
+            daily_return_pct = 0.0
+        twr_cum_pct = (twr_factor - 1.0) * 100.0
+        holding_pnl = unrealized
+        holding_pnl_pct = ((holding_pnl / buy_amount) * 100.0) if buy_amount > 0.0 else 0.0
+        updated_at = _as_seoul_datetime(day_updated_at) or datetime.now(tz=SEOUL)
+        items_asc.append(
+            AutoTradePerformanceItem(
+                ymd=day.isoformat(),
+                orders_total=int(day_orders_total),
+                filled_total=int(day_filled_total),
+                buy_amount_krw=float(buy_amount),
+                eval_amount_krw=float(eval_amount),
+                realized_pnl_krw=float(cumulative_realized_pnl),
+                unrealized_pnl_krw=float(unrealized),
+                roi_pct=float(roi_pct),
+                win_rate=float(win_rate),
+                mdd_pct=float(mdd_pct),
+                total_asset_krw=None,
+                daily_return_pct=None,
+                twr_cum_pct=None,
+                holding_pnl_krw=float(holding_pnl),
+                holding_pnl_pct=float(holding_pnl_pct),
+                today_pnl_krw=None,
+                today_pnl_pct=None,
+                updated_at=updated_at,
+            )
+        )
+        prev_total_asset = total_asset
+
+    def _append_buy_lot(ticker: str, qty: int, entry_price: float, current_price: float) -> None:
+        if qty <= 0 or entry_price <= 0.0 or not ticker:
+            return
+        lots = lots_by_ticker.setdefault(ticker, [])
+        lots.append(
+            {
+                "qty": int(qty),
+                "entry_price": float(entry_price),
+                "current_price": float(current_price if current_price > 0.0 else entry_price),
+            }
+        )
+
+    def _apply_sell_lot(ticker: str, qty: int, exit_price: float, *, collect_day_stat: bool) -> None:
+        nonlocal cumulative_realized_pnl, cumulative_realized_cost, day_closed_pnl_pct
+        if qty <= 0 or exit_price <= 0.0 or not ticker:
+            return
+        lots = lots_by_ticker.get(ticker) or []
+        close_qty = int(qty)
+        while close_qty > 0 and lots:
+            lot = lots[0]
+            lot_qty = int(lot.get("qty") or 0)
+            entry_price = float(lot.get("entry_price") or 0.0)
+            if lot_qty <= 0 or entry_price <= 0.0:
+                lots.pop(0)
+                continue
+            matched = min(close_qty, lot_qty)
+            pnl_krw = (exit_price - entry_price) * float(matched)
+            cumulative_realized_pnl += pnl_krw
+            cumulative_realized_cost += entry_price * float(matched)
+            if collect_day_stat:
+                close_pct = ((exit_price / entry_price) - 1.0) * 100.0 if entry_price > 0.0 else 0.0
+                day_closed_pnl_pct.append(close_pct)
+            remaining = lot_qty - matched
+            lot["qty"] = int(remaining)
+            close_qty -= matched
+            if remaining <= 0:
+                lots.pop(0)
+        if lots:
+            lots_by_ticker[ticker] = lots
+        else:
+            lots_by_ticker.pop(ticker, None)
+
+    row_index = 0
+    row_count = len(rows)
+    while row_index < row_count:
+        row = rows[row_index]
+        requested_at = getattr(row, "requested_at", None)
+        if not isinstance(requested_at, datetime):
+            row_index += 1
+            continue
+        row_day = requested_at.date()
+        if row_day >= since:
+            break
+        side = str(getattr(row, "side", "BUY") or "BUY").strip().upper()
+        status = str(getattr(row, "status", "") or "").strip().upper()
+        is_real_fill = _is_real_filled_order_status(status)
+        qty = max(0, int(getattr(row, "qty", 0) or 0))
+        price = float(getattr(row, "filled_price", None) or getattr(row, "requested_price", None) or 0.0)
+        ticker = _normalize_kr_ticker_strict(getattr(row, "ticker", ""))
+        current_seed = float(getattr(row, "current_price", None) or getattr(row, "filled_price", None) or getattr(row, "requested_price", None) or price)
+        if is_real_fill and qty > 0 and price > 0.0 and ticker:
+            if side == "BUY":
+                _append_buy_lot(ticker=ticker, qty=qty, entry_price=price, current_price=current_seed)
+                cash_balance -= price * float(qty)
+            elif side == "SELL":
+                _apply_sell_lot(ticker=ticker, qty=qty, exit_price=price, collect_day_stat=False)
+                cash_balance += price * float(qty)
+        row_index += 1
+
+    cursor = since
+    while cursor <= today:
+        _reset_day_accumulator()
+        while row_index < row_count:
+            row = rows[row_index]
+            requested_at = getattr(row, "requested_at", None)
+            if not isinstance(requested_at, datetime):
+                row_index += 1
+                continue
+            row_day = requested_at.date()
+            if row_day < cursor:
+                row_index += 1
+                continue
+            if row_day > cursor:
+                break
+            day_orders_total += 1
+            if day_updated_at is None or requested_at > day_updated_at:
+                day_updated_at = requested_at
+
+            side = str(getattr(row, "side", "BUY") or "BUY").strip().upper()
+            status = str(getattr(row, "status", "") or "").strip().upper()
+            is_real_fill = _is_real_filled_order_status(status)
+            qty = max(0, int(getattr(row, "qty", 0) or 0))
+            price = float(getattr(row, "filled_price", None) or getattr(row, "requested_price", None) or 0.0)
+            ticker = _normalize_kr_ticker_strict(getattr(row, "ticker", ""))
+            current_seed = float(getattr(row, "current_price", None) or getattr(row, "filled_price", None) or getattr(row, "requested_price", None) or price)
+
+            if is_real_fill:
+                day_filled_total += 1
+                if qty > 0 and price > 0.0 and ticker:
+                    if side == "BUY":
+                        _append_buy_lot(ticker=ticker, qty=qty, entry_price=price, current_price=current_seed)
+                        cash_balance -= price * float(qty)
+                    elif side == "SELL":
+                        _apply_sell_lot(ticker=ticker, qty=qty, exit_price=price, collect_day_stat=True)
+                        cash_balance += price * float(qty)
+            row_index += 1
+        _finalize_day(cursor)
+        cursor += timedelta(days=1)
+
+    return list(reversed(items_asc))
+
+
+def _as_seoul_datetime(value: datetime | None) -> datetime | None:
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=SEOUL)
+    return value.astimezone(SEOUL)
+
+
+def _autotrade_performance_summary(items: list[AutoTradePerformanceItem]) -> AutoTradePerformanceItem | None:
+    if not items:
+        return None
+    latest = items[0]
+    orders_total = sum(int(r.orders_total or 0) for r in items)
+    filled_total = sum(int(r.filled_total or 0) for r in items)
+    buy_amount = float(latest.buy_amount_krw or 0.0)
+    eval_amount = float(latest.eval_amount_krw or 0.0)
+    realized = float(latest.realized_pnl_krw or 0.0)
+    unrealized = float(latest.unrealized_pnl_krw or 0.0)
+    roi_pct = float(latest.roi_pct or 0.0)
+    win_rate = float(latest.win_rate or 0.0)
+    mdd_pct = max(float(r.mdd_pct or 0.0) for r in items)
+    total_asset = getattr(latest, "total_asset_krw", None)
+    daily_return_pct = getattr(latest, "daily_return_pct", None)
+    twr_cum_pct = getattr(latest, "twr_cum_pct", None)
+    holding_pnl = getattr(latest, "holding_pnl_krw", None)
+    holding_pnl_pct = getattr(latest, "holding_pnl_pct", None)
+    today_pnl = getattr(latest, "today_pnl_krw", None)
+    today_pnl_pct = getattr(latest, "today_pnl_pct", None)
+    updated_candidates = [_as_seoul_datetime(r.updated_at) for r in items]
+    updated_candidates = [ts for ts in updated_candidates if ts is not None]
+    latest_updated = max(updated_candidates) if updated_candidates else datetime.now(tz=SEOUL)
+    return AutoTradePerformanceItem(
+        ymd="summary",
+        orders_total=orders_total,
+        filled_total=filled_total,
+        buy_amount_krw=buy_amount,
+        eval_amount_krw=eval_amount,
+        realized_pnl_krw=realized,
+        unrealized_pnl_krw=unrealized,
+        roi_pct=roi_pct,
+        win_rate=win_rate,
+        mdd_pct=mdd_pct,
+        total_asset_krw=(float(total_asset) if total_asset is not None else None),
+        daily_return_pct=(float(daily_return_pct) if daily_return_pct is not None else None),
+        twr_cum_pct=(float(twr_cum_pct) if twr_cum_pct is not None else None),
+        holding_pnl_krw=(float(holding_pnl) if holding_pnl is not None else None),
+        holding_pnl_pct=(float(holding_pnl_pct) if holding_pnl_pct is not None else None),
+        today_pnl_krw=(float(today_pnl) if today_pnl is not None else None),
+        today_pnl_pct=(float(today_pnl_pct) if today_pnl_pct is not None else None),
+        updated_at=latest_updated,
+    )
+
+
+def _is_meaningful_performance_item(item: AutoTradePerformanceItem | None) -> bool:
+    if item is None:
+        return False
+    if int(getattr(item, "filled_total", 0) or 0) > 0:
+        return True
+    numeric_fields = (
+        "buy_amount_krw",
+        "eval_amount_krw",
+        "realized_pnl_krw",
+        "unrealized_pnl_krw",
+        "total_asset_krw",
+        "holding_pnl_krw",
+        "today_pnl_krw",
+    )
+    for field in numeric_fields:
+        try:
+            value = float(getattr(item, field, 0.0) or 0.0)
+        except Exception:
+            value = 0.0
+        if abs(value) > 1e-9:
+            return True
+    return False
+
+
+def _has_meaningful_history_before(items: list[AutoTradePerformanceItem], target_ymd: str) -> bool:
+    for item in items:
+        if str(getattr(item, "ymd", "") or "") == target_ymd:
+            continue
+        if _is_meaningful_performance_item(item):
+            return True
+    return False
+
+
+def _build_live_account_performance_item(
+    *,
+    snapshots: list[AutoTradeAccountSnapshotResponse],
+    ymd: date,
+    orders_total: int,
+    filled_total: int,
+) -> AutoTradePerformanceItem | None:
+    live_snaps = [s for s in snapshots if str(getattr(s, "source", "") or "").strip().upper() == "BROKER_LIVE"]
+    if not live_snaps:
+        return None
+    buy_amount = 0.0
+    eval_amount = 0.0
+    realized = 0.0
+    unrealized = 0.0
+    total_asset = 0.0
+    holding_pnl_sum = 0.0
+    today_pnl_sum = 0.0
+    prev_asset_sum = 0.0
+    pnl_samples: list[float] = []
+    updated_candidates: list[datetime] = []
+
+    for snap in live_snaps:
+        positions = list(getattr(snap, "positions", []) or [])
+        buy_amount += sum(max(0.0, float(getattr(p, "avg_price", 0.0) or 0.0)) * max(0, int(getattr(p, "qty", 0) or 0)) for p in positions)
+        if getattr(snap, "stock_eval_krw", None) is not None:
+            eval_amount += max(0.0, float(getattr(snap, "stock_eval_krw", 0.0) or 0.0))
+        else:
+            eval_amount += sum(max(0.0, float(getattr(p, "eval_amount_krw", 0.0) or 0.0)) for p in positions)
+        if getattr(snap, "total_asset_krw", None) is not None:
+            total_asset += max(0.0, float(getattr(snap, "total_asset_krw", 0.0) or 0.0))
+        snap_realized = getattr(snap, "realized_pnl_krw", None)
+        snap_unrealized = getattr(snap, "unrealized_pnl_krw", None)
+        realized += float(snap_realized or 0.0)
+        if snap_unrealized is not None:
+            unrealized += float(snap_unrealized or 0.0)
+        else:
+            unrealized += sum(float(getattr(p, "pnl_amount_krw", 0.0) or 0.0) for p in positions)
+        snap_holding_pnl = getattr(snap, "real_eval_pnl_krw", None)
+        if snap_holding_pnl is not None:
+            holding_pnl_sum += float(snap_holding_pnl or 0.0)
+        else:
+            holding_pnl_sum += float(snap_unrealized or 0.0)
+        snap_today_pnl = getattr(snap, "asset_change_krw", None)
+        snap_total_asset = getattr(snap, "total_asset_krw", None)
+        if snap_today_pnl is not None:
+            today_pnl_sum += float(snap_today_pnl or 0.0)
+            if snap_total_asset is not None:
+                prev_asset_sum += max(0.0, float(snap_total_asset or 0.0) - float(snap_today_pnl or 0.0))
+        for pos in positions:
+            try:
+                pnl_samples.append(float(getattr(pos, "pnl_pct", 0.0) or 0.0))
+            except Exception:
+                continue
+        updated = _as_seoul_datetime(getattr(snap, "updated_at", None))
+        if updated is not None:
+            updated_candidates.append(updated)
+
+    total_pnl = realized + unrealized
+    roi_pct = ((total_pnl / buy_amount) * 100.0) if buy_amount > 0.0 else 0.0
+    holding_pnl_pct = ((holding_pnl_sum / buy_amount) * 100.0) if buy_amount > 0.0 else 0.0
+    wins = sum(1 for p in pnl_samples if p > 0.0)
+    win_rate = (wins / len(pnl_samples)) if pnl_samples else 0.0
+    mdd_pct = abs(min(0.0, min(pnl_samples) if pnl_samples else 0.0))
+    phase, _next_open = current_market_phase(datetime.now(tz=SEOUL))
+    market_holiday = str(phase or "").strip().upper() == "HOLIDAY"
+    effective_today_pnl = 0.0 if market_holiday else float(today_pnl_sum)
+    effective_today_pnl_pct = (
+        0.0
+        if market_holiday
+        else ((effective_today_pnl / prev_asset_sum * 100.0) if prev_asset_sum > 0.0 else 0.0)
+    )
+    updated_at = max(updated_candidates) if updated_candidates else datetime.now(tz=SEOUL)
+    return AutoTradePerformanceItem(
+        ymd=ymd.isoformat(),
+        orders_total=max(0, int(orders_total)),
+        filled_total=max(0, int(filled_total)),
+        buy_amount_krw=float(buy_amount),
+        eval_amount_krw=float(eval_amount),
+        realized_pnl_krw=float(realized),
+        unrealized_pnl_krw=float(unrealized),
+        roi_pct=float(roi_pct),
+        win_rate=float(win_rate),
+        mdd_pct=float(mdd_pct),
+        total_asset_krw=float(total_asset),
+        daily_return_pct=float(effective_today_pnl_pct),
+        twr_cum_pct=float(effective_today_pnl_pct),
+        holding_pnl_krw=float(holding_pnl_sum),
+        holding_pnl_pct=float(holding_pnl_pct),
+        today_pnl_krw=float(effective_today_pnl),
+        today_pnl_pct=float(effective_today_pnl_pct),
+        updated_at=updated_at,
     )
 
 
@@ -2744,6 +3455,29 @@ def mark_invite_sent(user_code: str, ctx=Depends(get_token_context)):
     return InviteMarkSentResponse(invite_status=INVITE_SENT)
 
 
+def _safe_log_login_event(**kwargs: Any) -> None:
+    try:
+        log_login_event(**kwargs)
+    except OperationalError as exc:
+        if _is_sqlite_lock_error(exc):
+            logger.warning(
+                "login_event_skip_locked user_code=%s result=%s reason=%s",
+                kwargs.get("user_code"),
+                kwargs.get("result"),
+                kwargs.get("reason"),
+            )
+            return
+        raise
+    except Exception:
+        logger.warning(
+            "login_event_skip_error user_code=%s result=%s reason=%s",
+            kwargs.get("user_code"),
+            kwargs.get("result"),
+            kwargs.get("reason"),
+            exc_info=True,
+        )
+
+
 @app.post("/auth/login/first", response_model=LoginResponse)
 def first_login(payload: FirstLoginRequest, request: Request):
     ip = get_request_ip(request)
@@ -2751,40 +3485,40 @@ def first_login(payload: FirstLoginRequest, request: Request):
     with session_scope() as session:
         user = _get_user_by_code(session, payload.user_code)
         if not user:
-            log_login_event(user=None, user_code=payload.user_code, result="fail", reason=REASON_INVALID_CRED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
+            _safe_log_login_event(user=None, user_code=payload.user_code, result="fail", reason=REASON_INVALID_CRED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
             raise HTTPException(status_code=401, detail=REASON_INVALID_CRED)
         if user.status == STATUS_BLOCKED:
-            log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_BLOCKED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
+            _safe_log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_BLOCKED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
             raise HTTPException(status_code=403, detail=REASON_BLOCKED)
         if user.status == STATUS_DELETED:
-            log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_DELETED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
+            _safe_log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_DELETED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
             raise HTTPException(status_code=403, detail=REASON_DELETED)
         if _check_locked(user):
-            log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_LOCKED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
+            _safe_log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_LOCKED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
             raise HTTPException(status_code=403, detail=REASON_LOCKED)
         if user.expires_at and user.expires_at < now():
-            log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_EXPIRED_TEMP_PASSWORD, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
+            _safe_log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_EXPIRED_TEMP_PASSWORD, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
             raise HTTPException(status_code=403, detail=REASON_EXPIRED_TEMP_PASSWORD)
         if user.device_binding_enabled:
             # device binding enabled -> device_id is mandatory
             if not payload.device_id:
-                log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_DEVICE_NOT_ALLOWED, ip=ip, device_id=None, app_version=payload.app_version)
+                _safe_log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_DEVICE_NOT_ALLOWED, ip=ip, device_id=None, app_version=payload.app_version)
                 raise HTTPException(status_code=403, detail=REASON_DEVICE_NOT_ALLOWED)
             if user.bound_device_id and user.bound_device_id != payload.device_id:
-                log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_DEVICE_NOT_ALLOWED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
+                _safe_log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_DEVICE_NOT_ALLOWED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
                 raise HTTPException(status_code=403, detail=REASON_DEVICE_NOT_ALLOWED)
             if not user.bound_device_id:
                 user.bound_device_id = payload.device_id
         if not bcrypt.verify(payload.initial_password, user.password_hash):
             _mark_failed_attempt(session, user)
-            log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_INVALID_CRED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
+            _safe_log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_INVALID_CRED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
             if _touch_ip_fail(ip):
                 raise HTTPException(status_code=429, detail="TOO_MANY_ATTEMPTS")
             raise HTTPException(status_code=401, detail=REASON_INVALID_CRED)
         _reset_failed_attempts(session, user)
         user.last_login_at = now()
         user.updated_at = now()
-        log_login_event(user=user, user_code=user.user_code, result="success", reason=REASON_OK, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
+        _safe_log_login_event(user=user, user_code=user.user_code, result="success", reason=REASON_OK, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
     _clear_ip_fail(ip)
     token_pair = issue_token_pair(
         user,
@@ -2811,40 +3545,40 @@ def login(payload: LoginRequest, request: Request):
     with session_scope() as session:
         user = _get_user_by_code(session, payload.user_code)
         if not user:
-            log_login_event(user=None, user_code=payload.user_code, result="fail", reason=REASON_INVALID_CRED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
+            _safe_log_login_event(user=None, user_code=payload.user_code, result="fail", reason=REASON_INVALID_CRED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
             raise HTTPException(status_code=401, detail=REASON_INVALID_CRED)
         if user.status == STATUS_BLOCKED:
-            log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_BLOCKED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
+            _safe_log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_BLOCKED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
             raise HTTPException(status_code=403, detail=REASON_BLOCKED)
         if user.status == STATUS_DELETED:
-            log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_DELETED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
+            _safe_log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_DELETED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
             raise HTTPException(status_code=403, detail=REASON_DELETED)
         if _check_locked(user):
-            log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_LOCKED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
+            _safe_log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_LOCKED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
             raise HTTPException(status_code=403, detail=REASON_LOCKED)
         # Temporary password expiry should also block regular login while force_password_change=true.
         if user.force_password_change and user.expires_at and user.expires_at < now():
-            log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_EXPIRED_TEMP_PASSWORD, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
+            _safe_log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_EXPIRED_TEMP_PASSWORD, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
             raise HTTPException(status_code=403, detail=REASON_EXPIRED_TEMP_PASSWORD)
         if user.device_binding_enabled:
             if not payload.device_id:
-                log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_DEVICE_NOT_ALLOWED, ip=ip, device_id=None, app_version=payload.app_version)
+                _safe_log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_DEVICE_NOT_ALLOWED, ip=ip, device_id=None, app_version=payload.app_version)
                 raise HTTPException(status_code=403, detail=REASON_DEVICE_NOT_ALLOWED)
             if user.bound_device_id and user.bound_device_id != payload.device_id:
-                log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_DEVICE_NOT_ALLOWED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
+                _safe_log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_DEVICE_NOT_ALLOWED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
                 raise HTTPException(status_code=403, detail=REASON_DEVICE_NOT_ALLOWED)
             if not user.bound_device_id:
                 user.bound_device_id = payload.device_id
         if not bcrypt.verify(payload.password, user.password_hash):
             _mark_failed_attempt(session, user)
-            log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_INVALID_CRED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
+            _safe_log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_INVALID_CRED, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
             if _touch_ip_fail(ip):
                 raise HTTPException(status_code=429, detail="TOO_MANY_ATTEMPTS")
             raise HTTPException(status_code=401, detail=REASON_INVALID_CRED)
         _reset_failed_attempts(session, user)
         user.last_login_at = now()
         user.updated_at = now()
-        log_login_event(user=user, user_code=user.user_code, result="success", reason=REASON_OK, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
+        _safe_log_login_event(user=user, user_code=user.user_code, result="success", reason=REASON_OK, ip=ip, device_id=payload.device_id, app_version=payload.app_version)
     _clear_ip_fail(ip)
     token_pair = issue_token_pair(
         user,
@@ -2994,7 +3728,7 @@ def change_password(payload: PasswordChangeRequest, request: Request, ctx=Depend
     if not payload.current_password:
         raise HTTPException(status_code=400, detail="CURRENT_PASSWORD_REQUIRED")
     if not bcrypt.verify(payload.current_password, user.password_hash):
-        log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_INVALID_CRED, ip=ip, device_id=None, app_version=None)
+        _safe_log_login_event(user=user, user_code=user.user_code, result="fail", reason=REASON_INVALID_CRED, ip=ip, device_id=None, app_version=None)
         raise HTTPException(status_code=401, detail=REASON_INVALID_CRED)
     with session_scope() as session:
         row = session.get(User, user.id)
@@ -4659,7 +5393,10 @@ def get_autotrade_broker_credential(ctx=Depends(get_token_context)):
 
 
 @app.get("/autotrade/bootstrap", response_model=AutoTradeBootstrapResponse)
-def get_autotrade_bootstrap(ctx=Depends(get_token_context)):
+def get_autotrade_bootstrap(
+    fast: bool = Query(True),
+    ctx=Depends(get_token_context),
+):
     user = require_active_user(ctx)
     generated_at = datetime.now(tz=SEOUL)
     with session_scope() as session:
@@ -4689,6 +5426,7 @@ def get_autotrade_bootstrap(ctx=Depends(get_token_context)):
             user_id=user.id,
             cfg=cfg,
             broker_status=broker_status,
+            allow_live_fetch=not bool(fast),
         )
 
         recent_order_size = 80
@@ -4756,7 +5494,7 @@ def get_autotrade_candidates(
             limit=effective_limit,
             profile=profile_mode,
         )
-        cached = _get_cached_autotrade_candidates(cache_key)
+        cached = _get_cached_autotrade_candidates(cache_key, profile_mode=profile_mode)
         if cached is not None:
             return cached
         items_raw = build_autotrade_candidates(
@@ -4800,123 +5538,166 @@ def run_autotrade(payload: AutoTradeRunRequest, ctx=Depends(get_token_context)):
     with session_scope() as session:
         _require_menu_allowed(session, user.id, _MENU_KEY_AUTOTRADE)
         cfg = get_or_create_autotrade_setting(session, user.id)
-        max_orders = max(1, min(int(payload.limit or cfg.max_orders_per_run), 100))
-        preview_limit = max(20, max_orders * 4)
-        reservation_preview: list[AutoTradeReservationPreviewItem] = []
-        reservation_preview_count = 0
-        try:
-            preview_candidates = build_autotrade_candidates(
-                session,
-                user.id,
-                cfg,
-                limit=preview_limit,
-                profile="initial",
-            )
-            reservation_preview_count = len(preview_candidates)
-            for row in preview_candidates[:8]:
-                source_tab = str(row.get("source_tab") or "UNKNOWN").strip().upper()
-                if source_tab not in {"DAYTRADE", "MOVERS", "SUPPLY", "PAPERS", "LONGTERM", "FAVORITES", "RECENT"}:
-                    source_tab = "UNKNOWN"
-                reservation_preview.append(
-                    AutoTradeReservationPreviewItem(
-                        ticker=str(row.get("ticker") or ""),
-                        name=(str(row.get("name")) if row.get("name") is not None else None),
-                        source_tab=source_tab,
-                    )
-                )
-        except Exception as exc:
-            logger.warning("autotrade reservation preview build failed user_id=%s err=%s", user.id, exc)
+        run_env = _autotrade_env(getattr(cfg, "environment", "demo"))
+        guard_acquired = False
         if not bool(payload.dry_run):
-            phase, _next_open = current_market_phase()
-            if phase != "OPEN":
-                if not bool(getattr(cfg, "offhours_reservation_enabled", True)):
-                    return AutoTradeRunResponse(
-                        run_id=secrets.token_hex(6),
-                        message=f"MARKET_{phase}_BLOCKED",
-                        queued=False,
-                        reservation_id=None,
-                        reservation_status=None,
-                        reservation_preview_count=reservation_preview_count,
-                        reservation_preview_items=reservation_preview,
-                        requested_count=0,
-                        submitted_count=0,
-                        filled_count=0,
-                        skipped_count=0,
-                        orders=[],
-                        metric=None,
-                    )
-                if not bool(payload.reserve_if_closed):
-                    return AutoTradeRunResponse(
-                        run_id=secrets.token_hex(6),
-                        message=f"MARKET_{phase}_RESERVATION_AVAILABLE",
-                        queued=False,
-                        reservation_id=None,
-                        reservation_status=None,
-                        reservation_preview_count=reservation_preview_count,
-                        reservation_preview_items=reservation_preview,
-                        requested_count=reservation_preview_count,
-                        submitted_count=0,
-                        filled_count=0,
-                        skipped_count=0,
-                        orders=[],
-                        metric=None,
-                    )
-                reservation = enqueue_reservation(
-                    session,
-                    user_id=user.id,
-                    environment=_autotrade_env(getattr(cfg, "environment", "demo")),
-                    mode=str(getattr(cfg, "offhours_reservation_mode", "auto") or "auto"),
-                    timeout_action=str(getattr(cfg, "offhours_confirm_timeout_action", "cancel") or "cancel"),
-                    timeout_min=max(1, min(30, int(getattr(cfg, "offhours_confirm_timeout_min", 3) or 3))),
-                    limit=payload.limit,
-                    trigger_phase=phase,
-                    preview_count=reservation_preview_count,
-                    preview_items=[item.model_dump() for item in reservation_preview],
-                )
+            guard_acquired = _autotrade_run_guard_acquire(user.id, run_env)
+            if not guard_acquired:
                 return AutoTradeRunResponse(
-                    run_id=f"reservation-{int(reservation.id)}",
-                    message=f"MARKET_{phase}_RESERVED",
-                    queued=True,
-                    reservation_id=int(reservation.id),
-                    reservation_status=str(reservation.status),
-                    reservation_preview_count=reservation_preview_count,
-                    reservation_preview_items=reservation_preview,
-                    requested_count=reservation_preview_count,
+                    run_id=secrets.token_hex(6),
+                    message="RUN_ALREADY_IN_PROGRESS",
+                    queued=False,
+                    reservation_id=None,
+                    reservation_status=None,
+                    reservation_preview_count=0,
+                    reservation_preview_items=[],
+                    requested_count=0,
                     submitted_count=0,
                     filled_count=0,
                     skipped_count=0,
                     orders=[],
                     metric=None,
                 )
-        user_creds, use_user_creds = resolve_user_kis_credentials(session, user.id)
-        result = run_autotrade_once(
-            session,
-            user_id=user.id,
-            cfg=cfg,
-            dry_run=bool(payload.dry_run),
-            limit=payload.limit,
-            broker_credentials=(user_creds if use_user_creds else None),
-        )
-        orders = [_autotrade_order_item(x) for x in result.created_orders]
-        submitted_count = sum(1 for o in result.created_orders if str(o.status) != "SKIPPED")
-        filled_count = sum(1 for o in result.created_orders if str(o.status) in {"PAPER_FILLED", "BROKER_FILLED"})
-        skipped_count = sum(1 for o in result.created_orders if str(o.status) == "SKIPPED")
-        metric = _autotrade_metric_item(result.metric) if result.metric is not None else None
-        _invalidate_autotrade_account_snapshot_cache(user.id)
-        _invalidate_autotrade_candidates_cache(user.id)
-        return AutoTradeRunResponse(
-            run_id=result.run_id,
-            message=result.message,
-            queued=False,
-            reservation_id=None,
-            reservation_status=None,
-            requested_count=len(result.candidates),
-            submitted_count=submitted_count,
-            filled_count=filled_count,
-            skipped_count=skipped_count,
-            orders=orders,
-            metric=metric,
-        )
+        try:
+            max_orders = max(1, min(int(payload.limit or cfg.max_orders_per_run), 100))
+            preview_limit = max(20, max_orders * 4)
+            reservation_preview: list[AutoTradeReservationPreviewItem] = []
+            reservation_preview_count = 0
+            try:
+                preview_candidates = build_autotrade_candidates(
+                    session,
+                    user.id,
+                    cfg,
+                    limit=preview_limit,
+                    profile="initial",
+                )
+                reservation_preview_count = len(preview_candidates)
+                order_budget = max(0.0, float(getattr(cfg, "order_budget_krw", 0.0) or 0.0))
+                order_type = "MARKET" if bool(getattr(cfg, "allow_market_order", False)) else "LIMIT"
+                for row in preview_candidates:
+                    source_tab = str(row.get("source_tab") or "UNKNOWN").strip().upper()
+                    if source_tab not in {"DAYTRADE", "MOVERS", "SUPPLY", "PAPERS", "LONGTERM", "FAVORITES", "RECENT"}:
+                        source_tab = "UNKNOWN"
+                    plan_price = float(row.get("current_price") or row.get("signal_price") or 0.0)
+                    plan_qty = int(order_budget // plan_price) if plan_price > 0.0 else 0
+                    plan_amount = (plan_qty * plan_price) if plan_qty > 0 and plan_price > 0.0 else None
+                    reservation_preview.append(
+                        AutoTradeReservationPreviewItem(
+                            ticker=str(row.get("ticker") or ""),
+                            name=(str(row.get("name")) if row.get("name") is not None else None),
+                            source_tab=source_tab,
+                            signal_price=(float(row.get("signal_price")) if row.get("signal_price") is not None else None),
+                            current_price=(float(row.get("current_price")) if row.get("current_price") is not None else None),
+                            chg_pct=(float(row.get("chg_pct")) if row.get("chg_pct") is not None else None),
+                            planned_qty=plan_qty,
+                            planned_price=(plan_price if plan_price > 0.0 else None),
+                            planned_amount_krw=plan_amount,
+                            order_type=order_type,
+                            merged_count=1,
+                        )
+                    )
+            except Exception as exc:
+                logger.warning("autotrade reservation preview build failed user_id=%s err=%s", user.id, exc)
+            if not bool(payload.dry_run):
+                phase, _next_open = current_market_phase()
+                if phase != "OPEN":
+                    if not bool(getattr(cfg, "offhours_reservation_enabled", True)):
+                        return AutoTradeRunResponse(
+                            run_id=secrets.token_hex(6),
+                            message=f"MARKET_{phase}_BLOCKED",
+                            queued=False,
+                            reservation_id=None,
+                            reservation_status=None,
+                            reservation_preview_count=reservation_preview_count,
+                            reservation_preview_items=reservation_preview,
+                            requested_count=0,
+                            submitted_count=0,
+                            filled_count=0,
+                            skipped_count=0,
+                            orders=[],
+                            metric=None,
+                        )
+                    if not bool(payload.reserve_if_closed):
+                        return AutoTradeRunResponse(
+                            run_id=secrets.token_hex(6),
+                            message=f"MARKET_{phase}_RESERVATION_AVAILABLE",
+                            queued=False,
+                            reservation_id=None,
+                            reservation_status=None,
+                            reservation_preview_count=reservation_preview_count,
+                            reservation_preview_items=reservation_preview,
+                            requested_count=reservation_preview_count,
+                            submitted_count=0,
+                            filled_count=0,
+                            skipped_count=0,
+                            orders=[],
+                            metric=None,
+                        )
+                    reservation, merge_info = enqueue_reservation(
+                        session,
+                        user_id=user.id,
+                        environment=run_env,
+                        mode=str(getattr(cfg, "offhours_reservation_mode", "auto") or "auto"),
+                        timeout_action=str(getattr(cfg, "offhours_confirm_timeout_action", "cancel") or "cancel"),
+                        timeout_min=max(1, min(30, int(getattr(cfg, "offhours_confirm_timeout_min", 3) or 3))),
+                        limit=payload.limit,
+                        trigger_phase=phase,
+                        preview_count=reservation_preview_count,
+                        preview_items=[item.model_dump() for item in reservation_preview],
+                    )
+                    reservation_item = _autotrade_reservation_item(reservation)
+                    reserved_message = f"MARKET_{phase}_RESERVED"
+                    if bool(merge_info.get("merged")):
+                        reserved_message = f"MARKET_{phase}_RESERVATION_MERGED"
+                    return AutoTradeRunResponse(
+                        run_id=f"reservation-{int(reservation.id)}",
+                        message=reserved_message,
+                        queued=True,
+                        reservation_id=int(reservation.id),
+                        reservation_status=str(reservation.status),
+                        reservation_merged=bool(merge_info.get("merged")),
+                        reservation_merge_requests=int(merge_info.get("merge_request_count") or 1),
+                        reservation_preview_count=int(reservation_item.preview_count or 0),
+                        reservation_preview_items=list(reservation_item.preview_items or []),
+                        requested_count=int(reservation_item.preview_count or 0),
+                        submitted_count=0,
+                        filled_count=0,
+                        skipped_count=0,
+                        orders=[],
+                        metric=None,
+                    )
+            user_creds, use_user_creds = resolve_user_kis_credentials(session, user.id)
+            result = run_autotrade_once(
+                session,
+                user_id=user.id,
+                cfg=cfg,
+                dry_run=bool(payload.dry_run),
+                limit=payload.limit,
+                broker_credentials=(user_creds if use_user_creds else None),
+            )
+            orders = [_autotrade_order_item(x) for x in result.created_orders]
+            submitted_count = sum(1 for o in result.created_orders if str(o.status) != "SKIPPED")
+            filled_count = sum(1 for o in result.created_orders if str(o.status) in {"PAPER_FILLED", "BROKER_FILLED"})
+            skipped_count = sum(1 for o in result.created_orders if str(o.status) == "SKIPPED")
+            metric = _autotrade_metric_item(result.metric) if result.metric is not None else None
+            _invalidate_autotrade_account_snapshot_cache(user.id)
+            _invalidate_autotrade_candidates_cache(user.id)
+            return AutoTradeRunResponse(
+                run_id=result.run_id,
+                message=result.message,
+                queued=False,
+                reservation_id=None,
+                reservation_status=None,
+                requested_count=len(result.candidates),
+                submitted_count=submitted_count,
+                filled_count=filled_count,
+                skipped_count=skipped_count,
+                orders=orders,
+                metric=metric,
+            )
+        finally:
+            if guard_acquired:
+                _autotrade_run_guard_release(user.id, run_env)
 
 
 @app.get("/autotrade/reservations", response_model=AutoTradeReservationsResponse)
@@ -4932,10 +5713,103 @@ def get_autotrade_reservations(
         status_norm = str(status or "").strip().upper()
         if status_norm:
             q = q.filter(AutoTradeReservation.status == status_norm)
+        total_count = int(q.count())
         rows = q.order_by(AutoTradeReservation.requested_at.desc(), AutoTradeReservation.id.desc()).limit(limit).all()
         return AutoTradeReservationsResponse(
-            total=len(rows),
+            total=total_count,
             items=[_autotrade_reservation_item(r) for r in rows],
+        )
+
+
+@app.post("/autotrade/reservations/pending-cancel", response_model=AutoTradeReservationPendingCancelResponse)
+def cancel_autotrade_pending_reservations(payload: AutoTradeReservationPendingCancelRequest, ctx=Depends(get_token_context)):
+    user = require_active_user(ctx)
+    target_env_raw = str(payload.environment or "").strip().lower()
+    if target_env_raw and target_env_raw not in {"paper", "demo", "prod"}:
+        raise HTTPException(status_code=400, detail="INVALID_ENVIRONMENT")
+    target_env = _autotrade_env(target_env_raw) if target_env_raw else None
+    max_count = max(1, min(300, int(payload.max_count or 30)))
+    try:
+        with session_scope() as session:
+            _require_menu_allowed(session, user.id, _MENU_KEY_AUTOTRADE)
+            q = (
+                session.query(AutoTradeReservation)
+                .filter(
+                    AutoTradeReservation.user_id == user.id,
+                    AutoTradeReservation.status.in_(["QUEUED", "WAIT_CONFIRM", "RUNNING"]),
+                )
+            )
+            if target_env:
+                q = q.filter(AutoTradeReservation.environment == target_env)
+            rows = (
+                q.order_by(AutoTradeReservation.requested_at.desc(), AutoTradeReservation.id.desc())
+                .limit(max_count)
+                .all()
+            )
+            if not rows:
+                return AutoTradeReservationPendingCancelResponse(
+                    ok=True,
+                    requested_count=0,
+                    canceled_count=0,
+                    failed_count=0,
+                    skipped_count=0,
+                    canceled_reservation_ids=[],
+                    failed_reservation_ids=[],
+                    message="취소할 예약 주문이 없습니다.",
+                )
+
+            canceled_ids: list[int] = []
+            failed_ids: list[int] = []
+            skipped_count = 0
+            for row in rows:
+                reservation_id = int(row.id or 0)
+                if reservation_id <= 0:
+                    skipped_count += 1
+                    continue
+                try:
+                    before_status = str(row.status or "").upper()
+                    result_row = cancel_reservation(session, user_id=user.id, reservation_id=reservation_id)
+                    after_status = str(result_row.status or "").upper()
+                    if after_status == "CANCELED" and before_status != "CANCELED":
+                        canceled_ids.append(reservation_id)
+                    else:
+                        skipped_count += 1
+                except ValueError:
+                    failed_ids.append(reservation_id)
+
+            if canceled_ids:
+                _invalidate_autotrade_candidates_cache(user.id)
+            return AutoTradeReservationPendingCancelResponse(
+                ok=True,
+                requested_count=len(rows),
+                canceled_count=len(canceled_ids),
+                failed_count=len(failed_ids),
+                skipped_count=int(skipped_count),
+                canceled_reservation_ids=canceled_ids,
+                failed_reservation_ids=failed_ids,
+                message=(
+                    f"예약 취소 요청 {len(rows)}건 중 취소 {len(canceled_ids)}건, "
+                    f"실패 {len(failed_ids)}건, 스킵 {int(skipped_count)}건"
+                ),
+            )
+    except OperationalError as exc:
+        if not _is_sqlite_lock_error(exc):
+            raise
+        logger.warning(
+            "autotrade reservation pending cancel lock user_id=%s env=%s",
+            user.id,
+            target_env,
+            exc_info=True,
+        )
+        return AutoTradeReservationPendingCancelResponse(
+            ok=False,
+            requested_count=0,
+            canceled_count=0,
+            failed_count=0,
+            skipped_count=0,
+            canceled_reservation_ids=[],
+            failed_reservation_ids=[],
+            message=_autotrade_db_lock_message("예약 일괄 취소"),
         )
 
 
@@ -4976,16 +5850,94 @@ def confirm_autotrade_reservation(reservation_id: int, ctx=Depends(get_token_con
 @app.post("/autotrade/reservations/{reservation_id}/cancel", response_model=AutoTradeReservationActionResponse)
 def cancel_autotrade_reservation(reservation_id: int, ctx=Depends(get_token_context)):
     user = require_active_user(ctx)
-    with session_scope() as session:
-        _require_menu_allowed(session, user.id, _MENU_KEY_AUTOTRADE)
-        try:
-            row = cancel_reservation(session, user_id=user.id, reservation_id=reservation_id)
-        except ValueError:
-            raise HTTPException(status_code=404, detail="NOT_FOUND")
+    try:
+        with session_scope() as session:
+            _require_menu_allowed(session, user.id, _MENU_KEY_AUTOTRADE)
+            try:
+                row = cancel_reservation(session, user_id=user.id, reservation_id=reservation_id)
+            except ValueError:
+                raise HTTPException(status_code=404, detail="NOT_FOUND")
+            return AutoTradeReservationActionResponse(
+                ok=True,
+                reservation=_autotrade_reservation_item(row),
+                run_result=None,
+                message="예약 주문을 취소했습니다.",
+            )
+    except OperationalError as exc:
+        if not _is_sqlite_lock_error(exc):
+            raise
+        logger.warning(
+            "autotrade reservation cancel lock user_id=%s reservation_id=%s",
+            user.id,
+            reservation_id,
+            exc_info=True,
+        )
         return AutoTradeReservationActionResponse(
-            ok=True,
-            reservation=_autotrade_reservation_item(row),
+            ok=False,
+            reservation=_load_reservation_item_for_user(user.id, reservation_id),
             run_result=None,
+            message=_autotrade_db_lock_message("예약 취소"),
+        )
+
+
+@app.post("/autotrade/reservations/{reservation_id}/items/{ticker}/cancel", response_model=AutoTradeReservationActionResponse)
+def cancel_autotrade_reservation_item(reservation_id: int, ticker: str, ctx=Depends(get_token_context)):
+    user = require_active_user(ctx)
+    try:
+        with session_scope() as session:
+            _require_menu_allowed(session, user.id, _MENU_KEY_AUTOTRADE)
+            try:
+                row, removed_count = cancel_reservation_preview_item(
+                    session,
+                    user_id=user.id,
+                    reservation_id=reservation_id,
+                    ticker=ticker,
+                )
+            except ValueError as exc:
+                code = str(exc).upper()
+                if code == "NOT_FOUND":
+                    raise HTTPException(status_code=404, detail="NOT_FOUND")
+                if code == "STATUS_NOT_CANCELABLE":
+                    return AutoTradeReservationActionResponse(
+                        ok=False,
+                        reservation=_load_reservation_item_for_user(user.id, reservation_id),
+                        run_result=None,
+                        message="현재 상태에서는 개별 취소가 불가합니다. 예약 대기 상태에서만 취소할 수 있습니다.",
+                    )
+                if code == "ITEM_NOT_FOUND":
+                    return AutoTradeReservationActionResponse(
+                        ok=False,
+                        reservation=_load_reservation_item_for_user(user.id, reservation_id),
+                        run_result=None,
+                        message="예약 목록에서 해당 종목을 찾지 못했습니다.",
+                    )
+                return AutoTradeReservationActionResponse(
+                    ok=False,
+                    reservation=_load_reservation_item_for_user(user.id, reservation_id),
+                    run_result=None,
+                    message="예약 종목 개별 취소에 실패했습니다.",
+                )
+            return AutoTradeReservationActionResponse(
+                ok=True,
+                reservation=_autotrade_reservation_item(row),
+                run_result=None,
+                message=f"예약 종목 {int(removed_count)}건을 취소했습니다.",
+            )
+    except OperationalError as exc:
+        if not _is_sqlite_lock_error(exc):
+            raise
+        logger.warning(
+            "autotrade reservation item cancel lock user_id=%s reservation_id=%s ticker=%s",
+            user.id,
+            reservation_id,
+            ticker,
+            exc_info=True,
+        )
+        return AutoTradeReservationActionResponse(
+            ok=False,
+            reservation=_load_reservation_item_for_user(user.id, reservation_id),
+            run_result=None,
+            message=_autotrade_db_lock_message("예약 종목 취소"),
         )
 
 
@@ -5113,41 +6065,102 @@ def run_autotrade_manual_buy(payload: AutoTradeManualBuyRequest, ctx=Depends(get
             reason = "PRICE_UNAVAILABLE"
         elif qty <= 0:
             reason = "QTY_ZERO"
-        elif mode == "paper":
-            status = "PAPER_FILLED"
-            filled_price = request_price
-            filled_at = now_ts
-            reason = f"MANUAL_BUY_PAPER_{order_type}"
         else:
-            if not settings.kis_trading_enabled:
-                reason = "KIS_TRADING_DISABLED"
+            pending_guard_sec = max(30, min(3600, int(getattr(settings, "autotrade_pending_order_guard_sec", 300))))
+            pending_row = _find_recent_pending_order(
+                session,
+                user_id=user.id,
+                environment=mode,
+                side="BUY",
+                ticker=ticker,
+                within_sec=pending_guard_sec,
+            )
+            if pending_row is not None:
+                reason = "PENDING_BUY_ORDER"
+                metadata["pending_guard_sec"] = int(pending_guard_sec)
+                metadata["existing_order_id"] = int(getattr(pending_row, "id", 0) or 0)
+                metadata["existing_broker_order_no"] = str(getattr(pending_row, "broker_order_no", "") or "")
             else:
-                user_creds, use_user_creds = resolve_user_kis_credentials(session, user.id)
-                broker = KisBrokerClient(credentials=(user_creds if use_user_creds else None))
-                broker_env = "demo" if mode == "demo" else "prod"
-                if not broker.has_required_config(broker_env):
-                    reason = "BROKER_CREDENTIAL_MISSING"
-                else:
-                    result = broker.order_cash(
-                        env=broker_env,
-                        side="buy",
-                        ticker=ticker,
-                        qty=qty,
-                        price=request_price,
-                        market_order=market_order,
-                    )
-                    metadata["broker"] = {
-                        "ok": bool(result.ok),
-                        "status_code": int(result.status_code),
-                        "message": str(result.message or ""),
-                    }
-                    if result.ok:
-                        status = "BROKER_SUBMITTED"
-                        broker_order_no = result.order_no
-                        reason = str(result.message or "MANUAL_BUY_PROD")
+                phase, _next_open = current_market_phase(datetime.now(tz=SEOUL))
+                if phase != "OPEN":
+                    if not bool(getattr(cfg, "offhours_reservation_enabled", True)):
+                        reason = f"MARKET_{phase}_BLOCKED"
                     else:
-                        status = "BROKER_REJECTED"
-                        reason = str(result.message or "BROKER_ORDER_FAILED")
+                        reservation = enqueue_manual_order_reservation(
+                            session,
+                            user_id=user.id,
+                            environment=mode,
+                            side="BUY",
+                            source_tab="DETAIL_CARD",
+                            ticker=ticker,
+                            name=(str(payload.name).strip() if payload.name is not None and str(payload.name).strip() else None),
+                            qty=qty,
+                            request_price=request_price,
+                            market_order=market_order,
+                            order_type=order_type,
+                            trigger_phase=phase,
+                            timeout_action="auto",
+                        )
+                        preview_item = AutoTradeReservationPreviewItem(
+                            ticker=ticker,
+                            name=(str(payload.name).strip() if payload.name is not None and str(payload.name).strip() else None),
+                            source_tab="DETAIL_CARD",
+                            signal_price=request_price if request_price > 0.0 else None,
+                            current_price=request_price if request_price > 0.0 else None,
+                            chg_pct=None,
+                            planned_qty=qty,
+                            planned_price=request_price if request_price > 0.0 else None,
+                            planned_amount_krw=(request_price * qty if request_price > 0.0 and qty > 0 else None),
+                            order_type=order_type,
+                            merged_count=1,
+                        )
+                        return AutoTradeRunResponse(
+                            run_id=f"reservation-{int(reservation.id)}",
+                            message=f"MANUAL_BUY_{mode.upper()}:{order_type}:MARKET_{phase}_RESERVED",
+                            queued=True,
+                            reservation_id=int(reservation.id),
+                            reservation_status=str(reservation.status),
+                            reservation_merged=False,
+                            reservation_merge_requests=1,
+                            reservation_preview_count=1,
+                            reservation_preview_items=[preview_item],
+                            requested_count=1,
+                            submitted_count=0,
+                            filled_count=0,
+                            skipped_count=0,
+                            orders=[],
+                            metric=None,
+                        )
+            if reason is None:
+                if not settings.kis_trading_enabled:
+                    reason = "KIS_TRADING_DISABLED"
+                else:
+                    user_creds, use_user_creds = resolve_user_kis_credentials(session, user.id)
+                    broker = KisBrokerClient(credentials=(user_creds if use_user_creds else None))
+                    broker_env = "demo" if mode == "demo" else "prod"
+                    if not broker.has_required_config(broker_env):
+                        reason = "BROKER_CREDENTIAL_MISSING"
+                    else:
+                        result = broker.order_cash(
+                            env=broker_env,
+                            side="buy",
+                            ticker=ticker,
+                            qty=qty,
+                            price=request_price,
+                            market_order=market_order,
+                        )
+                        metadata["broker"] = {
+                            "ok": bool(result.ok),
+                            "status_code": int(result.status_code),
+                            "message": str(result.message or ""),
+                        }
+                        if result.ok:
+                            status = "BROKER_SUBMITTED"
+                            broker_order_no = result.order_no
+                            reason = str(result.message or "MANUAL_BUY_PROD")
+                        else:
+                            status = "BROKER_REJECTED"
+                            reason = str(result.message or "BROKER_ORDER_FAILED")
 
         row = AutoTradeOrder(
             user_id=user.id,
@@ -5255,41 +6268,102 @@ def run_autotrade_manual_sell(payload: AutoTradeManualSellRequest, ctx=Depends(g
             reason = "PRICE_UNAVAILABLE"
         elif qty <= 0:
             reason = "QTY_ZERO"
-        elif mode == "paper":
-            status = "PAPER_FILLED"
-            filled_price = request_price
-            filled_at = now_ts
-            reason = f"MANUAL_SELL_PAPER_{order_type}"
         else:
-            if not settings.kis_trading_enabled:
-                reason = "KIS_TRADING_DISABLED"
+            pending_guard_sec = max(30, min(3600, int(getattr(settings, "autotrade_pending_order_guard_sec", 300))))
+            pending_row = _find_recent_pending_order(
+                session,
+                user_id=user.id,
+                environment=mode,
+                side="SELL",
+                ticker=ticker,
+                within_sec=pending_guard_sec,
+            )
+            if pending_row is not None:
+                reason = "PENDING_SELL_ORDER"
+                metadata["pending_guard_sec"] = int(pending_guard_sec)
+                metadata["existing_order_id"] = int(getattr(pending_row, "id", 0) or 0)
+                metadata["existing_broker_order_no"] = str(getattr(pending_row, "broker_order_no", "") or "")
             else:
-                user_creds, use_user_creds = resolve_user_kis_credentials(session, user.id)
-                broker = KisBrokerClient(credentials=(user_creds if use_user_creds else None))
-                broker_env = "demo" if mode == "demo" else "prod"
-                if not broker.has_required_config(broker_env):
-                    reason = "BROKER_CREDENTIAL_MISSING"
-                else:
-                    result = broker.order_cash(
-                        env=broker_env,
-                        side="sell",
-                        ticker=ticker,
-                        qty=qty,
-                        price=request_price,
-                        market_order=market_order,
-                    )
-                    metadata["broker"] = {
-                        "ok": bool(result.ok),
-                        "status_code": int(result.status_code),
-                        "message": str(result.message or ""),
-                    }
-                    if result.ok:
-                        status = "BROKER_SUBMITTED"
-                        broker_order_no = result.order_no
-                        reason = str(result.message or "MANUAL_SELL_PROD")
+                phase, _next_open = current_market_phase(datetime.now(tz=SEOUL))
+                if phase != "OPEN":
+                    if not bool(getattr(cfg, "offhours_reservation_enabled", True)):
+                        reason = f"MARKET_{phase}_BLOCKED"
                     else:
-                        status = "BROKER_REJECTED"
-                        reason = str(result.message or "BROKER_ORDER_FAILED")
+                        reservation = enqueue_manual_order_reservation(
+                            session,
+                            user_id=user.id,
+                            environment=mode,
+                            side="SELL",
+                            source_tab="HOLDINGS",
+                            ticker=ticker,
+                            name=(str(payload.name).strip() if payload.name is not None and str(payload.name).strip() else None),
+                            qty=qty,
+                            request_price=request_price,
+                            market_order=market_order,
+                            order_type=order_type,
+                            trigger_phase=phase,
+                            timeout_action="auto",
+                        )
+                        preview_item = AutoTradeReservationPreviewItem(
+                            ticker=ticker,
+                            name=(str(payload.name).strip() if payload.name is not None and str(payload.name).strip() else None),
+                            source_tab="HOLDINGS",
+                            signal_price=request_price if request_price > 0.0 else None,
+                            current_price=request_price if request_price > 0.0 else None,
+                            chg_pct=None,
+                            planned_qty=qty,
+                            planned_price=request_price if request_price > 0.0 else None,
+                            planned_amount_krw=(request_price * qty if request_price > 0.0 and qty > 0 else None),
+                            order_type=order_type,
+                            merged_count=1,
+                        )
+                        return AutoTradeRunResponse(
+                            run_id=f"reservation-{int(reservation.id)}",
+                            message=f"MANUAL_SELL_{mode.upper()}:{order_type}:MARKET_{phase}_RESERVED",
+                            queued=True,
+                            reservation_id=int(reservation.id),
+                            reservation_status=str(reservation.status),
+                            reservation_merged=False,
+                            reservation_merge_requests=1,
+                            reservation_preview_count=1,
+                            reservation_preview_items=[preview_item],
+                            requested_count=1,
+                            submitted_count=0,
+                            filled_count=0,
+                            skipped_count=0,
+                            orders=[],
+                            metric=None,
+                        )
+            if reason is None:
+                if not settings.kis_trading_enabled:
+                    reason = "KIS_TRADING_DISABLED"
+                else:
+                    user_creds, use_user_creds = resolve_user_kis_credentials(session, user.id)
+                    broker = KisBrokerClient(credentials=(user_creds if use_user_creds else None))
+                    broker_env = "demo" if mode == "demo" else "prod"
+                    if not broker.has_required_config(broker_env):
+                        reason = "BROKER_CREDENTIAL_MISSING"
+                    else:
+                        result = broker.order_cash(
+                            env=broker_env,
+                            side="sell",
+                            ticker=ticker,
+                            qty=qty,
+                            price=request_price,
+                            market_order=market_order,
+                        )
+                        metadata["broker"] = {
+                            "ok": bool(result.ok),
+                            "status_code": int(result.status_code),
+                            "message": str(result.message or ""),
+                        }
+                        if result.ok:
+                            status = "BROKER_SUBMITTED"
+                            broker_order_no = result.order_no
+                            reason = str(result.message or "MANUAL_SELL_PROD")
+                        else:
+                            status = "BROKER_REJECTED"
+                            reason = str(result.message or "BROKER_ORDER_FAILED")
 
         row = AutoTradeOrder(
             user_id=user.id,
@@ -5343,24 +6417,195 @@ def cancel_autotrade_order(
     if fallback_env_raw and fallback_env_raw not in {"paper", "demo", "prod"}:
         raise HTTPException(status_code=400, detail="INVALID_ENVIRONMENT")
     fallback_env = _autotrade_env(fallback_env_raw) if fallback_env_raw else None
-    with session_scope() as session:
-        _require_menu_allowed(session, user.id, _MENU_KEY_AUTOTRADE)
-        row = session.get(AutoTradeOrder, int(order_id))
-        if row is None or int(row.user_id) != int(user.id):
-            raise HTTPException(status_code=404, detail="NOT_FOUND")
-        ok, message = _cancel_broker_submitted_order(
-            session,
-            user_id=user.id,
-            order_row=row,
-            fallback_environment=fallback_env,
+    try:
+        with session_scope() as session:
+            _require_menu_allowed(session, user.id, _MENU_KEY_AUTOTRADE)
+            seed_row = session.get(AutoTradeOrder, int(order_id))
+            if seed_row is None or int(seed_row.user_id) != int(user.id):
+                raise HTTPException(status_code=404, detail="NOT_FOUND")
+
+            target_env = _autotrade_order_environment(seed_row) or fallback_env or "demo"
+            target_ticker = str(getattr(seed_row, "ticker", "") or "").strip()
+            target_side = str(getattr(seed_row, "side", "BUY") or "BUY").strip().upper()
+            if target_side not in {"BUY", "SELL"}:
+                target_side = "BUY"
+
+            candidate_rows = (
+                session.query(AutoTradeOrder)
+                .filter(
+                    AutoTradeOrder.user_id == user.id,
+                    AutoTradeOrder.status == "BROKER_SUBMITTED",
+                    AutoTradeOrder.ticker == target_ticker,
+                    AutoTradeOrder.side == target_side,
+                )
+                .order_by(AutoTradeOrder.requested_at.desc(), AutoTradeOrder.id.desc())
+                .all()
+            )
+            target_rows: list[AutoTradeOrder] = []
+            target_row_ids: set[int] = set()
+            for cand in candidate_rows:
+                cand_env = _autotrade_order_environment(cand) or target_env
+                if cand_env != target_env:
+                    continue
+                cid = int(getattr(cand, "id", 0) or 0)
+                if cid <= 0 or cid in target_row_ids:
+                    continue
+                target_rows.append(cand)
+                target_row_ids.add(cid)
+
+            seed_id = int(getattr(seed_row, "id", 0) or 0)
+            if seed_id > 0 and seed_id not in target_row_ids:
+                seed_env = _autotrade_order_environment(seed_row) or target_env
+                if (
+                    str(getattr(seed_row, "status", "") or "").strip().upper() == "BROKER_SUBMITTED"
+                    and seed_env == target_env
+                ):
+                    target_rows.insert(0, seed_row)
+                    target_row_ids.add(seed_id)
+
+            reservation_id: int | None = None
+            reservation_status: str | None = None
+            canceled_items: list[AutoTradeOrderItem] = []
+            failed_items: list[AutoTradeOrderItem] = []
+            skipped_count = 0
+            closed_count = 0
+            reserved_count = 0
+            canceled_ids: list[int] = []
+            closed_ids: list[int] = []
+            market_block_message: str | None = None
+            reservation_message: str | None = None
+            cancel_sync_limit = max(1, min(200, int(getattr(settings, "autotrade_cancel_sync_limit", 8))))
+            cancel_sync_budget_sec = max(5, min(180, int(getattr(settings, "autotrade_cancel_sync_budget_sec", 35))))
+            cancel_started_at = perf_counter()
+
+            for index, row in enumerate(target_rows):
+                elapsed_sec = perf_counter() - cancel_started_at
+                if index >= cancel_sync_limit or elapsed_sec >= float(cancel_sync_budget_sec):
+                    reserve_targets = target_rows[index:]
+                    if reserve_targets:
+                        phase, _next_open = current_market_phase(datetime.now(tz=SEOUL))
+                        reserved = enqueue_order_cancel_reservation(
+                            session,
+                            user_id=user.id,
+                            environment=target_env,
+                            order_rows=reserve_targets,
+                            trigger_phase=phase,
+                            timeout_action="cancel",
+                        )
+                        if reserved is not None:
+                            reserved_count += len(reserve_targets)
+                            reservation_id = int(reserved.id)
+                            reservation_status = str(reserved.status or "QUEUED")
+                            reservation_message = (
+                                f"대량 접수취소로 즉시 {index}건 처리 후 나머지 {len(reserve_targets)}건을 장중 자동 예약했습니다. "
+                                f"예약 #{reservation_id}"
+                            )
+                        else:
+                            for remain in reserve_targets:
+                                failed_items.append(_autotrade_order_item(remain))
+                    break
+                outcome, message = _cancel_broker_submitted_order(
+                    session,
+                    user_id=user.id,
+                    order_row=row,
+                    fallback_environment=target_env,
+                )
+                if outcome == "canceled":
+                    canceled_items.append(_autotrade_order_item(row))
+                    rid = int(getattr(row, "id", 0) or 0)
+                    if rid > 0:
+                        canceled_ids.append(rid)
+                    continue
+                if outcome == "closed":
+                    closed_count += 1
+                    rid = int(getattr(row, "id", 0) or 0)
+                    if rid > 0:
+                        closed_ids.append(rid)
+                    continue
+                if outcome == "skipped" or str(message or "").strip().upper() in {"NOT_PENDING_ORDER"}:
+                    skipped_count += 1
+                    continue
+                if _is_market_time_block_message(message):
+                    market_block_message = str(message or "").strip()
+                    reserve_targets = [row] + target_rows[index + 1 :]
+                    phase, _next_open = current_market_phase(datetime.now(tz=SEOUL))
+                    reserved = enqueue_order_cancel_reservation(
+                        session,
+                        user_id=user.id,
+                        environment=target_env,
+                        order_rows=reserve_targets,
+                        trigger_phase=phase,
+                        timeout_action="cancel",
+                    )
+                    if reserved is not None:
+                        reserved_count = len(reserve_targets)
+                        reservation_id = int(reserved.id)
+                        reservation_status = str(reserved.status or "QUEUED")
+                        phase_label = _market_phase_user_label(phase)
+                        reservation_message = (
+                            f"{phase_label}이라 접수취소 {reserved_count}건을 장중 자동 예약했습니다. 예약 #{reservation_id}"
+                        )
+                    else:
+                        failed_items.append(_autotrade_order_item(row))
+                        for remain in target_rows[index + 1 :]:
+                            failed_items.append(_autotrade_order_item(remain))
+                    break
+                failed_items.append(_autotrade_order_item(row))
+
+            if canceled_items or closed_count > 0:
+                _invalidate_autotrade_account_snapshot_cache(user.id)
+                _invalidate_autotrade_candidates_cache(user.id)
+
+            message_parts: list[str] = []
+            if reservation_message:
+                message_parts.append(reservation_message)
+            elif market_block_message:
+                message_parts.append(market_block_message)
+            message_parts.append(
+                f"{target_ticker} 접수취소 요청 {len(target_rows)}건 중 취소 {len(canceled_items)}건, 상태정리 {closed_count}건, 예약 {reserved_count}건, 실패 {len(failed_items)}건, 스킵 {int(skipped_count)}건"
+            )
+            ok = len(failed_items) == 0
+
+            return AutoTradeOrderCancelResponse(
+                ok=bool(ok),
+                order=_autotrade_order_item(seed_row),
+                scope="symbol",
+                requested_count=len(target_rows),
+                canceled_count=len(canceled_items),
+                closed_count=int(closed_count),
+                reserved_count=int(reserved_count),
+                failed_count=len(failed_items),
+                skipped_count=int(skipped_count),
+                canceled_order_ids=canceled_ids,
+                closed_order_ids=closed_ids,
+                reservation_id=reservation_id,
+                reservation_status=reservation_status,
+                message=" ".join(part for part in message_parts if str(part or "").strip()).strip(),
+            )
+    except OperationalError as exc:
+        if not _is_sqlite_lock_error(exc):
+            raise
+        logger.warning(
+            "autotrade order cancel lock user_id=%s order_id=%s",
+            user.id,
+            order_id,
+            exc_info=True,
         )
-        if ok:
-            _invalidate_autotrade_account_snapshot_cache(user.id)
-            _invalidate_autotrade_candidates_cache(user.id)
         return AutoTradeOrderCancelResponse(
-            ok=bool(ok),
-            order=_autotrade_order_item(row),
-            message=message,
+            ok=False,
+            order=_load_order_item_for_user(user.id, order_id),
+            scope="symbol",
+            requested_count=0,
+            canceled_count=0,
+            closed_count=0,
+            reserved_count=0,
+            failed_count=0,
+            skipped_count=0,
+            canceled_order_ids=[],
+            closed_order_ids=[],
+            reservation_id=None,
+            reservation_status=None,
+            message=_autotrade_db_lock_message("접수 취소"),
         )
 
 
@@ -5371,62 +6616,184 @@ def cancel_autotrade_pending_orders(payload: AutoTradePendingCancelRequest, ctx=
     if target_env_raw and target_env_raw not in {"paper", "demo", "prod"}:
         raise HTTPException(status_code=400, detail="INVALID_ENVIRONMENT")
     target_env = _autotrade_env(target_env_raw) if target_env_raw else None
-    max_count = max(1, min(300, int(payload.max_count or 50)))
-    with session_scope() as session:
-        _require_menu_allowed(session, user.id, _MENU_KEY_AUTOTRADE)
-        rows = (
-            session.query(AutoTradeOrder)
-            .filter(
-                AutoTradeOrder.user_id == user.id,
-                AutoTradeOrder.status == "BROKER_SUBMITTED",
+    max_count = max(1, min(300, int(payload.max_count or 20)))
+    try:
+        with session_scope() as session:
+            _require_menu_allowed(session, user.id, _MENU_KEY_AUTOTRADE)
+            rows = (
+                session.query(AutoTradeOrder)
+                .filter(
+                    AutoTradeOrder.user_id == user.id,
+                    AutoTradeOrder.status == "BROKER_SUBMITTED",
+                )
+                .order_by(AutoTradeOrder.requested_at.desc(), AutoTradeOrder.id.desc())
+                .limit(max_count * 6)
+                .all()
             )
-            .order_by(AutoTradeOrder.requested_at.desc(), AutoTradeOrder.id.desc())
-            .limit(max_count * 6)
-            .all()
-        )
-        target_rows: list[AutoTradeOrder] = []
-        for row in rows:
-            env = _autotrade_order_environment(row)
-            if target_env and env != target_env:
-                continue
-            target_rows.append(row)
-            if len(target_rows) >= max_count:
-                break
+            target_rows: list[AutoTradeOrder] = []
+            for row in rows:
+                env = _autotrade_order_environment(row)
+                if target_env and env != target_env:
+                    continue
+                target_rows.append(row)
+                if len(target_rows) >= max_count:
+                    break
 
-        canceled_items: list[AutoTradeOrderItem] = []
-        failed_items: list[AutoTradeOrderItem] = []
-        skipped_count = 0
-        for row in target_rows:
-            ok, _message = _cancel_broker_submitted_order(
-                session,
-                user_id=user.id,
-                order_row=row,
-                fallback_environment=target_env,
-            )
-            if ok:
-                canceled_items.append(_autotrade_order_item(row))
-            else:
-                row_item = _autotrade_order_item(row)
-                if str(_message or "").strip().upper() in {"NOT_PENDING_ORDER"}:
-                    skipped_count += 1
+            canceled_items: list[AutoTradeOrderItem] = []
+            failed_items: list[AutoTradeOrderItem] = []
+            skipped_count = 0
+            closed_count = 0
+            reserved_count = 0
+            reservation_id: int | None = None
+            db_lock_abort = False
+            market_block_message: str | None = None
+            reservation_message: str | None = None
+            cancel_sync_limit = max(1, min(200, int(getattr(settings, "autotrade_cancel_sync_limit", 8))))
+            cancel_sync_budget_sec = max(5, min(180, int(getattr(settings, "autotrade_cancel_sync_budget_sec", 35))))
+            cancel_started_at = perf_counter()
+            for index, row in enumerate(target_rows):
+                elapsed_sec = perf_counter() - cancel_started_at
+                if index >= cancel_sync_limit or elapsed_sec >= float(cancel_sync_budget_sec):
+                    reserve_targets = target_rows[index:]
+                    if reserve_targets:
+                        reserve_env = target_env or _autotrade_order_environment(row) or "demo"
+                        phase, _next_open = current_market_phase(datetime.now(tz=SEOUL))
+                        reserved = enqueue_order_cancel_reservation(
+                            session,
+                            user_id=user.id,
+                            environment=reserve_env,
+                            order_rows=reserve_targets,
+                            trigger_phase=phase,
+                            timeout_action="cancel",
+                        )
+                        if reserved is not None:
+                            reserved_count += len(reserve_targets)
+                            reservation_id = int(reserved.id)
+                            phase_label = _market_phase_user_label(phase)
+                            reservation_message = (
+                                f"대량 접수취소로 즉시 {index}건 처리 후 나머지 {len(reserve_targets)}건을 "
+                                f"{phase_label} 자동 예약했습니다. 예약 #{reservation_id}"
+                            )
+                        else:
+                            for remain in reserve_targets:
+                                failed_items.append(_autotrade_order_item(remain))
+                    break
+                try:
+                    outcome, _message = _cancel_broker_submitted_order(
+                        session,
+                        user_id=user.id,
+                        order_row=row,
+                        fallback_environment=target_env,
+                    )
+                except OperationalError as exc:
+                    if not _is_sqlite_lock_error(exc):
+                        raise
+                    session.rollback()
+                    db_lock_abort = True
+                    logger.warning(
+                        "autotrade pending cancel lock user_id=%s order_id=%s",
+                        user.id,
+                        row.id,
+                        exc_info=True,
+                    )
+                    break
+                if outcome == "canceled":
+                    canceled_items.append(_autotrade_order_item(row))
+                elif outcome == "closed":
+                    closed_count += 1
                 else:
-                    failed_items.append(row_item)
+                    row_item = _autotrade_order_item(row)
+                    if outcome == "skipped" or str(_message or "").strip().upper() in {"NOT_PENDING_ORDER"}:
+                        skipped_count += 1
+                    else:
+                        if _is_market_time_block_message(_message):
+                            market_block_message = str(_message or "").strip()
+                            reserve_targets = [row] + target_rows[index + 1 :]
+                            reserve_env = target_env or _autotrade_order_environment(row) or "demo"
+                            phase, _next_open = current_market_phase(datetime.now(tz=SEOUL))
+                            reserved = enqueue_order_cancel_reservation(
+                                session,
+                                user_id=user.id,
+                                environment=reserve_env,
+                                order_rows=reserve_targets,
+                                trigger_phase=phase,
+                                timeout_action="cancel",
+                            )
+                            if reserved is not None:
+                                reserved_count = len(reserve_targets)
+                                reservation_id = int(reserved.id)
+                                phase_label = _market_phase_user_label(phase)
+                                reservation_message = (
+                                    f"{phase_label}이라 접수취소 {reserved_count}건을 장중 자동 예약했습니다. 예약 #{reservation_id}"
+                                )
+                            else:
+                                failed_items.append(row_item)
+                                for remain in target_rows[index + 1 :]:
+                                    failed_items.append(_autotrade_order_item(remain))
+                            break
+                        failed_items.append(row_item)
 
-        if canceled_items:
-            _invalidate_autotrade_account_snapshot_cache(user.id)
-            _invalidate_autotrade_candidates_cache(user.id)
+            if db_lock_abort:
+                return AutoTradePendingCancelResponse(
+                    ok=False,
+                    requested_count=len(target_rows),
+                    canceled_count=0,
+                    closed_count=0,
+                    reserved_count=0,
+                    reservation_id=None,
+                    failed_count=0,
+                    skipped_count=0,
+                    canceled_orders=[],
+                    failed_orders=[],
+                    message=_autotrade_db_lock_message("일괄 접수 취소"),
+                )
 
+            if canceled_items or closed_count > 0:
+                _invalidate_autotrade_account_snapshot_cache(user.id)
+                _invalidate_autotrade_candidates_cache(user.id)
+
+            message_parts: list[str] = []
+            if reservation_message:
+                message_parts.append(reservation_message)
+            elif market_block_message:
+                message_parts.append(market_block_message)
+            message_parts.append(
+                f"접수취소 요청 {len(target_rows)}건 중 취소 {len(canceled_items)}건, 상태정리 {closed_count}건, 예약 {reserved_count}건, 실패 {len(failed_items)}건, 스킵 {int(skipped_count)}건"
+            )
+            return AutoTradePendingCancelResponse(
+                ok=True,
+                requested_count=len(target_rows),
+                canceled_count=len(canceled_items),
+                closed_count=int(closed_count),
+                reserved_count=int(reserved_count),
+                reservation_id=reservation_id,
+                failed_count=len(failed_items),
+                skipped_count=int(skipped_count),
+                canceled_orders=canceled_items,
+                failed_orders=failed_items,
+                message=" ".join(part for part in message_parts if str(part or "").strip()).strip(),
+            )
+    except OperationalError as exc:
+        if not _is_sqlite_lock_error(exc):
+            raise
+        logger.warning(
+            "autotrade pending cancel lock user_id=%s env=%s",
+            user.id,
+            target_env,
+            exc_info=True,
+        )
         return AutoTradePendingCancelResponse(
-            ok=True,
-            requested_count=len(target_rows),
-            canceled_count=len(canceled_items),
-            failed_count=len(failed_items),
-            skipped_count=int(skipped_count),
-            canceled_orders=canceled_items,
-            failed_orders=failed_items,
-            message=(
-                f"접수취소 요청 {len(target_rows)}건 중 취소 {len(canceled_items)}건, 실패 {len(failed_items)}건, 스킵 {int(skipped_count)}건"
-            ),
+            ok=False,
+            requested_count=0,
+            canceled_count=0,
+            closed_count=0,
+            reserved_count=0,
+            reservation_id=None,
+            failed_count=0,
+            skipped_count=0,
+            canceled_orders=[],
+            failed_orders=[],
+            message=_autotrade_db_lock_message("일괄 접수 취소"),
         )
 
 
@@ -5434,72 +6801,112 @@ def cancel_autotrade_pending_orders(payload: AutoTradePendingCancelRequest, ctx=
 def get_autotrade_orders(
     page: int = Query(1, ge=1, le=1000),
     size: int = Query(50, ge=1, le=300),
+    environment: str | None = Query(None),
+    status: str | None = Query(None),
+    ticker: str | None = Query(None),
     ctx=Depends(get_token_context),
 ):
     user = require_active_user(ctx)
     offset = max(0, (page - 1) * size)
+    env_filter = str(environment or "").strip().lower()
+    if env_filter and env_filter not in {"paper", "demo", "prod"}:
+        raise HTTPException(status_code=400, detail="INVALID_ENVIRONMENT")
+    status_filter = str(status or "").strip().upper()
+    ticker_filter = "".join(ch for ch in str(ticker or "").strip() if ch.isdigit())
+    if ticker_filter:
+        ticker_filter = ticker_filter.zfill(6)[-6:]
     with session_scope() as session:
         _require_menu_allowed(session, user.id, _MENU_KEY_AUTOTRADE)
-        total = (
-            session.query(func.count(AutoTradeOrder.id))
-            .filter(AutoTradeOrder.user_id == user.id)
-            .scalar()
-        ) or 0
-        rows = (
+        base_query = (
             session.query(AutoTradeOrder)
             .filter(AutoTradeOrder.user_id == user.id)
-            .order_by(AutoTradeOrder.requested_at.desc())
-            .offset(offset)
-            .limit(size)
-            .all()
         )
+        if status_filter:
+            base_query = base_query.filter(AutoTradeOrder.status == status_filter)
+        if ticker_filter:
+            base_query = base_query.filter(AutoTradeOrder.ticker == ticker_filter)
+        ordered_rows = base_query.order_by(AutoTradeOrder.requested_at.desc(), AutoTradeOrder.id.desc()).all()
+        if env_filter:
+            ordered_rows = [row for row in ordered_rows if (_autotrade_order_environment(row) or "") == env_filter]
+        total = len(ordered_rows)
+        rows = ordered_rows[offset : offset + size]
         items = [_autotrade_order_item(r) for r in rows]
         return AutoTradeOrdersResponse(total=int(total), items=items)
 
 
 @app.get("/autotrade/performance", response_model=AutoTradePerformanceResponse)
-def get_autotrade_performance(days: int = Query(30, ge=1, le=365), ctx=Depends(get_token_context)):
+def get_autotrade_performance(
+    days: int = Query(30, ge=1, le=365),
+    environment: str | None = Query(None),
+    ctx=Depends(get_token_context),
+):
     user = require_active_user(ctx)
+    env_filter = str(environment or "").strip().lower()
+    if env_filter and env_filter not in {"demo", "prod"}:
+        raise HTTPException(status_code=400, detail="INVALID_ENVIRONMENT")
     since = datetime.now(tz=SEOUL).date() - timedelta(days=max(1, days) - 1)
     with session_scope() as session:
         _require_menu_allowed(session, user.id, _MENU_KEY_AUTOTRADE)
-        rows = (
-            session.query(AutoTradeDailyMetric)
-            .filter(
-                AutoTradeDailyMetric.user_id == user.id,
-                AutoTradeDailyMetric.ymd >= since,
+        cfg = get_or_create_autotrade_setting(session, user.id)
+        items = _build_autotrade_performance_items_from_orders(
+            session,
+            user_id=int(user.id),
+            since=since,
+            environment=(env_filter or None),
+            seed_krw=float(getattr(cfg, "seed_krw", 0.0) or 0.0),
+        )
+        summary = _autotrade_performance_summary(items)
+        needs_live_fallback = (
+            summary is None
+            or (
+                float(summary.buy_amount_krw or 0.0) <= 0.0
+                and float(summary.eval_amount_krw or 0.0) <= 0.0
+                and float(summary.unrealized_pnl_krw or 0.0) == 0.0
             )
-            .order_by(AutoTradeDailyMetric.ymd.desc())
-            .all()
         )
-    items = [_autotrade_metric_item(r) for r in rows]
-    summary = None
-    if rows:
-        orders_total = sum(int(r.orders_total or 0) for r in rows)
-        filled_total = sum(int(r.filled_total or 0) for r in rows)
-        buy_amount = sum(float(r.buy_amount_krw or 0.0) for r in rows)
-        eval_amount = sum(float(r.eval_amount_krw or 0.0) for r in rows)
-        realized = sum(float(r.realized_pnl_krw or 0.0) for r in rows)
-        unrealized = sum(float(r.unrealized_pnl_krw or 0.0) for r in rows)
-        weighted_win_num = sum(float(r.win_rate or 0.0) * max(1, int(r.filled_total or 0)) for r in rows)
-        weighted_win_den = sum(max(1, int(r.filled_total or 0)) for r in rows)
-        roi_pct = ((realized + unrealized) / buy_amount) * 100.0 if buy_amount > 0.0 else 0.0
-        win_rate = weighted_win_num / weighted_win_den if weighted_win_den > 0 else 0.0
-        mdd_pct = max(float(r.mdd_pct or 0.0) for r in rows)
-        latest_updated = max(r.updated_at for r in rows)
-        summary = AutoTradePerformanceItem(
-            ymd="summary",
-            orders_total=orders_total,
-            filled_total=filled_total,
-            buy_amount_krw=buy_amount,
-            eval_amount_krw=eval_amount,
-            realized_pnl_krw=realized,
-            unrealized_pnl_krw=unrealized,
-            roi_pct=roi_pct,
-            win_rate=win_rate,
-            mdd_pct=mdd_pct,
-            updated_at=latest_updated,
-        )
+        if needs_live_fallback:
+            broker_status = broker_credential_status(session, user.id)
+            target_envs = [env_filter] if env_filter in {"demo", "prod"} else ["demo", "prod"]
+            snapshots: list[AutoTradeAccountSnapshotResponse] = []
+            for env in target_envs:
+                snapshots.append(
+                    _resolve_autotrade_account_snapshot(
+                        session,
+                        user_id=user.id,
+                        cfg=cfg,
+                        broker_status=broker_status,
+                        environment=env,
+                    )
+                )
+            today = datetime.now(tz=SEOUL).date()
+            today_key = today.isoformat()
+            today_item = next((it for it in items if str(it.ymd) == today_key), None)
+            live_item = _build_live_account_performance_item(
+                snapshots=snapshots,
+                ymd=today,
+                orders_total=int(getattr(today_item, "orders_total", 0) or 0),
+                filled_total=int(getattr(today_item, "filled_total", 0) or 0),
+            )
+            if live_item is not None:
+                if not _has_meaningful_history_before(items, today_key):
+                    # Avoid misleading period deltas when only today's live snapshot exists.
+                    items = [live_item]
+                else:
+                    replaced = False
+                    merged: list[AutoTradePerformanceItem] = []
+                    for item in items:
+                        if str(item.ymd) == today_key:
+                            merged.append(live_item)
+                            replaced = True
+                        else:
+                            merged.append(item)
+                    if not replaced:
+                        max_items = max(1, len(items) or int(days))
+                        merged = ([live_item] + items)[:max_items]
+                    items = merged
+                summary = _autotrade_performance_summary(items)
+        if summary is None:
+            summary = _autotrade_performance_summary(items)
     return AutoTradePerformanceResponse(days=days, summary=summary, items=items)
 
 

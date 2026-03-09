@@ -45,6 +45,8 @@ import com.example.stock.data.api.AutoTradeRunRequestDto
 import com.example.stock.data.api.AutoTradeRunResponseDto
 import com.example.stock.data.api.AutoTradeReservationsResponseDto
 import com.example.stock.data.api.AutoTradeReservationActionResponseDto
+import com.example.stock.data.api.AutoTradeReservationPendingCancelRequestDto
+import com.example.stock.data.api.AutoTradeReservationPendingCancelResponseDto
 import com.example.stock.data.api.AutoTradeOrderCancelResponseDto
 import com.example.stock.data.api.AutoTradePendingCancelRequestDto
 import com.example.stock.data.api.AutoTradePendingCancelResponseDto
@@ -438,9 +440,9 @@ class StockRepository(
         NetworkModule.api(s.baseUrl).updateAutoTradeBrokerCredential(payload)
     }
 
-    suspend fun getAutoTradeBootstrap(): Result<AutoTradeBootstrapResponseDto> = runCatching {
+    suspend fun getAutoTradeBootstrap(fast: Boolean = true): Result<AutoTradeBootstrapResponseDto> = runCatching {
         val s = settingsStore.get()
-        NetworkModule.slowApi(s.baseUrl).getAutoTradeBootstrap()
+        NetworkModule.slowApi(s.baseUrl).getAutoTradeBootstrap(fast = fast)
     }
 
     suspend fun getAutoTradeCandidates(limit: Int = 300, profile: String = "full"): Result<AutoTradeCandidatesResponseDto> = runCatching {
@@ -488,6 +490,30 @@ class StockRepository(
         NetworkModule.api(s.baseUrl).cancelAutoTradeReservation(reservationId = reservationId)
     }
 
+    suspend fun cancelAutoTradeReservationItem(
+        reservationId: Int,
+        ticker: String,
+    ): Result<AutoTradeReservationActionResponseDto> = runCatching {
+        val s = settingsStore.get()
+        NetworkModule.api(s.baseUrl).cancelAutoTradeReservationItem(
+            reservationId = reservationId,
+            ticker = ticker,
+        )
+    }
+
+    suspend fun cancelAutoTradePendingReservations(
+        environment: String? = null,
+        maxCount: Int = 30,
+    ): Result<AutoTradeReservationPendingCancelResponseDto> = runCatching {
+        val s = settingsStore.get()
+        NetworkModule.slowApi(s.baseUrl).cancelAutoTradePendingReservations(
+            payload = AutoTradeReservationPendingCancelRequestDto(
+                environment = environment,
+                maxCount = maxCount,
+            )
+        )
+    }
+
     suspend fun cancelAutoTradeOrder(
         orderId: Int,
         environment: String? = null,
@@ -501,10 +527,10 @@ class StockRepository(
 
     suspend fun cancelAutoTradePendingOrders(
         environment: String? = null,
-        maxCount: Int = 50,
+        maxCount: Int = 20,
     ): Result<AutoTradePendingCancelResponseDto> = runCatching {
         val s = settingsStore.get()
-        NetworkModule.api(s.baseUrl).cancelAutoTradePendingOrders(
+        NetworkModule.slowApi(s.baseUrl).cancelAutoTradePendingOrders(
             payload = AutoTradePendingCancelRequestDto(
                 environment = environment,
                 maxCount = maxCount,
@@ -590,14 +616,29 @@ class StockRepository(
         )
     }
 
-    suspend fun getAutoTradeOrders(page: Int = 1, size: Int = 50): Result<AutoTradeOrdersResponseDto> = runCatching {
+    suspend fun getAutoTradeOrders(
+        page: Int = 1,
+        size: Int = 50,
+        environment: String? = null,
+        status: String? = null,
+        ticker: String? = null,
+    ): Result<AutoTradeOrdersResponseDto> = runCatching {
         val s = settingsStore.get()
-        NetworkModule.api(s.baseUrl).getAutoTradeOrders(page = page, size = size)
+        NetworkModule.api(s.baseUrl).getAutoTradeOrders(
+            page = page,
+            size = size,
+            environment = environment,
+            status = status,
+            ticker = ticker,
+        )
     }
 
-    suspend fun getAutoTradePerformance(days: Int = 30): Result<AutoTradePerformanceResponseDto> = runCatching {
+    suspend fun getAutoTradePerformance(
+        days: Int = 30,
+        environment: String? = null,
+    ): Result<AutoTradePerformanceResponseDto> = runCatching {
         val s = settingsStore.get()
-        NetworkModule.api(s.baseUrl).getAutoTradePerformance(days = days)
+        NetworkModule.api(s.baseUrl).getAutoTradePerformance(days = days, environment = environment)
     }
 
     suspend fun getAutoTradeAccountSnapshot(environment: String? = null): Result<AutoTradeAccountSnapshotResponseDto> = runCatching {

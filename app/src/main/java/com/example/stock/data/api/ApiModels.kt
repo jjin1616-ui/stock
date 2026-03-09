@@ -951,6 +951,13 @@ data class AutoTradePerformanceItemDto(
     @SerialName("roi_pct") val roiPct: Double? = 0.0,
     @SerialName("win_rate") val winRate: Double? = 0.0,
     @SerialName("mdd_pct") val mddPct: Double? = 0.0,
+    @SerialName("total_asset_krw") val totalAssetKrw: Double? = null,
+    @SerialName("daily_return_pct") val dailyReturnPct: Double? = null,
+    @SerialName("twr_cum_pct") val twrCumPct: Double? = null,
+    @SerialName("holding_pnl_krw") val holdingPnlKrw: Double? = null,
+    @SerialName("holding_pnl_pct") val holdingPnlPct: Double? = null,
+    @SerialName("today_pnl_krw") val todayPnlKrw: Double? = null,
+    @SerialName("today_pnl_pct") val todayPnlPct: Double? = null,
     @SerialName("updated_at") val updatedAt: String? = "",
 )
 
@@ -986,6 +993,10 @@ data class AutoTradeAccountSnapshotResponseDto(
     @SerialName("total_asset_krw") val totalAssetKrw: Double? = null,
     @SerialName("realized_pnl_krw") val realizedPnlKrw: Double? = null,
     @SerialName("unrealized_pnl_krw") val unrealizedPnlKrw: Double? = null,
+    @SerialName("real_eval_pnl_krw") val realEvalPnlKrw: Double? = null,
+    @SerialName("real_eval_pnl_pct") val realEvalPnlPct: Double? = null,
+    @SerialName("asset_change_krw") val assetChangeKrw: Double? = null,
+    @SerialName("asset_change_pct") val assetChangePct: Double? = null,
     val positions: List<AutoTradeAccountPositionDto>? = emptyList(),
     val message: String? = null,
     @SerialName("updated_at") val updatedAt: String? = "",
@@ -1010,6 +1021,8 @@ data class AutoTradeRunResponseDto(
     val queued: Boolean? = false,
     @SerialName("reservation_id") val reservationId: Int? = null,
     @SerialName("reservation_status") val reservationStatus: String? = null,
+    @SerialName("reservation_merged") val reservationMerged: Boolean? = false,
+    @SerialName("reservation_merge_requests") val reservationMergeRequests: Int? = null,
     @SerialName("reservation_preview_count") val reservationPreviewCount: Int? = null,
     @SerialName("reservation_preview_items") val reservationPreviewItems: List<AutoTradeReservationPreviewItemDto>? = emptyList(),
     @SerialName("requested_count") val requestedCount: Int? = 0,
@@ -1025,6 +1038,14 @@ data class AutoTradeReservationPreviewItemDto(
     val ticker: String? = "",
     val name: String? = null,
     @SerialName("source_tab") val sourceTab: String? = "UNKNOWN",
+    @SerialName("signal_price") val signalPrice: Double? = null,
+    @SerialName("current_price") val currentPrice: Double? = null,
+    @SerialName("chg_pct") val chgPct: Double? = null,
+    @SerialName("planned_qty") val plannedQty: Int? = null,
+    @SerialName("planned_price") val plannedPrice: Double? = null,
+    @SerialName("planned_amount_krw") val plannedAmountKrw: Double? = null,
+    @SerialName("order_type") val orderType: String? = null,
+    @SerialName("merged_count") val mergedCount: Int? = null,
 )
 
 @Serializable
@@ -1041,6 +1062,7 @@ data class AutoTradeReservationResultSummaryDto(
 data class AutoTradeReservationItemDto(
     val id: Int? = 0,
     val environment: String? = "demo",
+    val kind: String? = "AUTOTRADE_ENTRY",
     val mode: String? = "auto",
     val status: String? = "QUEUED",
     @SerialName("requested_at") val requestedAt: String? = "",
@@ -1065,21 +1087,33 @@ data class AutoTradeReservationsResponseDto(
 @Serializable
 data class AutoTradeReservationActionResponseDto(
     val ok: Boolean? = true,
-    val reservation: AutoTradeReservationItemDto? = AutoTradeReservationItemDto(),
+    val reservation: AutoTradeReservationItemDto? = null,
     @SerialName("run_result") val runResult: AutoTradeRunResponseDto? = null,
+    val message: String? = null,
 )
 
 @Serializable
 data class AutoTradeOrderCancelResponseDto(
     val ok: Boolean? = true,
-    val order: AutoTradeOrderItemDto? = AutoTradeOrderItemDto(),
+    val order: AutoTradeOrderItemDto? = null,
+    val scope: String? = "symbol",
+    @SerialName("requested_count") val requestedCount: Int? = 0,
+    @SerialName("canceled_count") val canceledCount: Int? = 0,
+    @SerialName("closed_count") val closedCount: Int? = 0,
+    @SerialName("reserved_count") val reservedCount: Int? = 0,
+    @SerialName("failed_count") val failedCount: Int? = 0,
+    @SerialName("skipped_count") val skippedCount: Int? = 0,
+    @SerialName("canceled_order_ids") val canceledOrderIds: List<Int>? = emptyList(),
+    @SerialName("closed_order_ids") val closedOrderIds: List<Int>? = emptyList(),
+    @SerialName("reservation_id") val reservationId: Int? = null,
+    @SerialName("reservation_status") val reservationStatus: String? = null,
     val message: String? = "",
 )
 
 @Serializable
 data class AutoTradePendingCancelRequestDto(
     val environment: String? = null,
-    @SerialName("max_count") val maxCount: Int = 50,
+    @SerialName("max_count") val maxCount: Int = 20,
 )
 
 @Serializable
@@ -1087,10 +1121,31 @@ data class AutoTradePendingCancelResponseDto(
     val ok: Boolean? = true,
     @SerialName("requested_count") val requestedCount: Int? = 0,
     @SerialName("canceled_count") val canceledCount: Int? = 0,
+    @SerialName("closed_count") val closedCount: Int? = 0,
+    @SerialName("reserved_count") val reservedCount: Int? = 0,
+    @SerialName("reservation_id") val reservationId: Int? = null,
     @SerialName("failed_count") val failedCount: Int? = 0,
     @SerialName("skipped_count") val skippedCount: Int? = 0,
     @SerialName("canceled_orders") val canceledOrders: List<AutoTradeOrderItemDto>? = emptyList(),
     @SerialName("failed_orders") val failedOrders: List<AutoTradeOrderItemDto>? = emptyList(),
+    val message: String? = "",
+)
+
+@Serializable
+data class AutoTradeReservationPendingCancelRequestDto(
+    val environment: String? = null,
+    @SerialName("max_count") val maxCount: Int = 30,
+)
+
+@Serializable
+data class AutoTradeReservationPendingCancelResponseDto(
+    val ok: Boolean? = true,
+    @SerialName("requested_count") val requestedCount: Int? = 0,
+    @SerialName("canceled_count") val canceledCount: Int? = 0,
+    @SerialName("failed_count") val failedCount: Int? = 0,
+    @SerialName("skipped_count") val skippedCount: Int? = 0,
+    @SerialName("canceled_reservation_ids") val canceledReservationIds: List<Int>? = emptyList(),
+    @SerialName("failed_reservation_ids") val failedReservationIds: List<Int>? = emptyList(),
     val message: String? = "",
 )
 

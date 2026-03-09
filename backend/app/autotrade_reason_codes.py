@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 
 def normalize_reason_code(status: str, reason: str) -> str:
     status_u = str(status or "").strip().upper()
@@ -27,6 +29,14 @@ def normalize_reason_code(status: str, reason: str) -> str:
         "KIS_TRADING_DISABLED",
     }:
         return reason_u
+    if reason_u.startswith("MARKET_"):
+        return reason_u
+    if re.fullmatch(r"[A-Z0-9_]+", reason_u or ""):
+        if status_u in {"BROKER_CLOSED", "BROKER_CANCELED", "BROKER_SUBMITTED", "BROKER_FILLED", "PAPER_FILLED"}:
+            return status_u
+        if status_u == "ERROR":
+            return "ERROR"
+        return reason_u
     if reason_u.startswith("BROKER_BALANCE_UNAVAILABLE"):
         return "BROKER_BALANCE_UNAVAILABLE"
     reason_raw = str(reason or "")
@@ -38,12 +48,15 @@ def normalize_reason_code(status: str, reason: str) -> str:
         return "MARKET_CLOSED"
     if status_u == "BROKER_REJECTED":
         return "BROKER_REJECTED"
+    if status_u == "ERROR":
+        return "ERROR"
     if status_u == "SKIPPED":
         return "SKIPPED_BY_RULE"
     return reason_u or status_u or "UNKNOWN"
 
 
 def reason_code_label(code: str) -> str:
+    code_u = str(code or "").strip().upper()
     mapping = {
         "SEED_LIMIT_EXCEEDED": "총 시드 한도 초과",
         "ORDERABLE_CASH_LIMIT": "주문가능현금 부족",
@@ -66,6 +79,15 @@ def reason_code_label(code: str) -> str:
         "BROKER_CREDENTIAL_MISSING": "증권사 계정정보 누락",
         "BROKER_BALANCE_UNAVAILABLE": "증권사 잔고 조회 실패",
         "BROKER_REJECTED": "증권사 주문 거부",
+        "BROKER_SUBMITTED": "증권사 주문 접수",
+        "BROKER_FILLED": "증권사 주문 체결",
+        "BROKER_CANCELED": "증권사 접수취소 완료",
+        "BROKER_CLOSED": "증권사 상태정리",
+        "PAPER_FILLED": "내부 모의 체결",
+        "ERROR": "주문 처리 오류",
+        "SKIPPED": "주문 조건 미충족",
         "KIS_TRADING_DISABLED": "실주문 비활성",
     }
-    return mapping.get(str(code or "").strip().upper(), "주문 조건 미충족")
+    if code_u.startswith("MARKET_"):
+        return "장시간 외"
+    return mapping.get(code_u, "주문 조건 미충족")
