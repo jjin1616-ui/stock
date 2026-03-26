@@ -81,6 +81,18 @@ class ResponseStatus(BaseModel):
     algo_version: str | None = None
 
 
+class MarketSnapshot(BaseModel):
+    kospi_close: float | None = None
+    kosdaq_close: float | None = None
+    usdkrw_close: float | None = None
+
+
+class Regime(BaseModel):
+    mode: str | None = None
+    bullets: list[str] = Field(default_factory=list)
+    market_snapshot: MarketSnapshot | None = None
+
+
 class PremarketResponse(BaseModel):
     date: str
     generated_at: datetime
@@ -99,6 +111,7 @@ class PremarketResponse(BaseModel):
     delta_explain: list[str] = Field(default_factory=list)
     themes: list[ThemeItem]
     hard_rules: list[str]
+    regime: Regime | None = None
 
 
 class EodResponse(BaseModel):
@@ -328,6 +341,7 @@ class SupplyResponse(BaseModel):
     bas_dd: str
     source: Literal["LIVE", "CACHE", "FALLBACK"] = "LIVE"
     message: str | None = None
+    unit: Literal["value", "qty"] = "value"
     universe_count: int = 0
     candidate_quotes: int = 0
     notes: list[str] = Field(default_factory=list)
@@ -1287,3 +1301,29 @@ class NewsIngestResponse(BaseModel):
     updated: int = 0
     clusters_updated: int = 0
     mentions_inserted: int = 0
+
+
+# ── 홈 화면 추가 API 스키마 ──
+
+class TradeFeedItem(BaseModel):
+    time: str | None = None
+    ticker: str | None = None
+    name: str | None = None
+    side: str | None = None  # BUY / SELL
+    qty: int | None = None
+    price: float | None = None
+    pnl: float | None = None
+
+class TradeFeedResponse(BaseModel):
+    items: list[TradeFeedItem] = Field(default_factory=list)
+    total: int = 0
+
+class PnlCalendarDay(BaseModel):
+    date: str
+    pnl: float = 0.0
+    trade_count: int = 0
+
+class PnlCalendarResponse(BaseModel):
+    days: list[PnlCalendarDay] = Field(default_factory=list)
+    month_total_pnl: float = 0.0
+    month_trade_count: int = 0

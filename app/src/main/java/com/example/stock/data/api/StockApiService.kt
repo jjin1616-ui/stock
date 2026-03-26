@@ -337,6 +337,17 @@ interface StockApiService {
     @GET("autotrade/account")
     suspend fun getAutoTradeAccountSnapshot(@Query("environment") environment: String? = null): AutoTradeAccountSnapshotResponseDto
 
+    @GET("autotrade/feed")
+    suspend fun getAutoTradeFeed(
+        @Query("limit") limit: Int = 20,
+    ): TradeFeedResponseDto
+
+    @GET("autotrade/pnl-calendar")
+    suspend fun getAutoTradePnlCalendar(
+        @Query("year") year: Int,
+        @Query("month") month: Int,
+    ): PnlCalendarResponseDto
+
     // --- News (Hybrid) ---
 
     @GET("api/news/themes")

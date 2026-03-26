@@ -1,0 +1,7 @@
+best combo(exec): {}
+baseline_v1 대비 expectancy 개선: 0.0000
+baseline_v2 대비 expectancy 개선: 0.0000
+비용영향(delta_cost_impact): 0.0000
+theme_hhi/avg_value: 0.0000 / 0
+theme_cap 제외 수(일평균): 0/0.00
+제외 종목 실제 R_exec 평균: 0.0000

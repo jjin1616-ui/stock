@@ -13,6 +13,8 @@ import com.example.stock.data.api.RealtimeQuoteItemDto
 import com.example.stock.data.api.ChartDailyDto
 import com.example.stock.data.api.ChartDailyBatchRequestDto
 import com.example.stock.data.api.StockInvestorDailyResponseDto
+import com.example.stock.data.api.TradeFeedResponseDto
+import com.example.stock.data.api.PnlCalendarResponseDto
 import com.example.stock.data.api.StockTrendIntradayResponseDto
 import com.example.stock.data.api.ResponseStatusDto
 import com.example.stock.data.api.StrategySettingsDto
@@ -631,6 +633,16 @@ class StockRepository(
             status = status,
             ticker = ticker,
         )
+    }
+
+    suspend fun getAutoTradeFeed(limit: Int = 20): Result<TradeFeedResponseDto> = runCatching {
+        val s = settingsStore.get()
+        NetworkModule.api(s.baseUrl).getAutoTradeFeed(limit = limit)
+    }
+
+    suspend fun getAutoTradePnlCalendar(year: Int, month: Int): Result<PnlCalendarResponseDto> = runCatching {
+        val s = settingsStore.get()
+        NetworkModule.api(s.baseUrl).getAutoTradePnlCalendar(year = year, month = month)
     }
 
     suspend fun getAutoTradePerformance(

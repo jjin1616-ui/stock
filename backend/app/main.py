@@ -2215,6 +2215,7 @@ def _compute_supply_live(
     fallback_rows = 0
     low_conf_rows = 0
     budget_exhausted = False
+    supply_unit = "value"  # 금액 우선, qty 폴백 시 변경
     for row, q, chg_pct, value_ratio in narrowed:
         elapsed_sec = perf_counter() - started_at
         if elapsed_sec >= _SUPPLY_COMPUTE_BUDGET_SECONDS and len(items) >= min(count, _SUPPLY_MIN_ITEMS_ON_BUDGET):
@@ -2232,11 +2233,18 @@ def _compute_supply_live(
         if investor_source == "FALLBACK" and investor_days < 3:
             continue
 
-        foreign_3d = _sum_investor_qty(investor_rows, 3, "foreign_qty")
-        institution_3d = _sum_investor_qty(investor_rows, 3, "institution_qty")
-        individual_3d = _sum_investor_qty(investor_rows, 3, "individual_qty")
+        # 금액(value) 우선, 없으면 수량(qty) 폴백 (네이버 fallback은 value=0)
+        _has_value = any(getattr(r, "foreign_value", 0) != 0 or getattr(r, "institution_value", 0) != 0 for r in investor_rows[:3])
+        if not _has_value:
+            supply_unit = "qty"
+        _f_key = "foreign_value" if _has_value else "foreign_qty"
+        _i_key = "institution_value" if _has_value else "institution_qty"
+        _d_key = "individual_value" if _has_value else "individual_qty"
+        foreign_3d = _sum_investor_qty(investor_rows, 3, _f_key)
+        institution_3d = _sum_investor_qty(investor_rows, 3, _i_key)
+        individual_3d = _sum_investor_qty(investor_rows, 3, _d_key)
         net_3d = foreign_3d + institution_3d
-        net_5d = _sum_investor_qty(investor_rows, 5, "foreign_qty") + _sum_investor_qty(investor_rows, 5, "institution_qty")
+        net_5d = _sum_investor_qty(investor_rows, 5, _f_key) + _sum_investor_qty(investor_rows, 5, _i_key)
         if net_3d <= 0 and net_5d <= 0:
             continue
 
@@ -2354,6 +2362,7 @@ def _compute_supply_live(
             "bas_dd": bas_dd,
             "source": "LIVE",
             "message": None if selected else "조건을 충족하는 수급 후보가 없습니다.",
+            "unit": supply_unit,
             "universe_count": len(universe_rows),
             "candidate_quotes": len(qmap),
             "notes": notes,
@@ -8426,3 +8435,91 @@ def news_ingest(payload: NewsIngestRequest, request: Request):
         clusters_updated=stats.clusters_updated,
         mentions_inserted=stats.mentions_inserted,
     )
+
+
+# ═══════════════════════════════════════════════════
+# 홈 화면 추가 API
+# ═══════════════════════════════════════════════════
+
+from app.schemas import TradeFeedResponse, TradeFeedItem, PnlCalendarResponse, PnlCalendarDay
+
+
+@app.get("/autotrade/feed", response_model=TradeFeedResponse)
+def get_autotrade_feed(
+    limit: int = Query(20, ge=1, le=100),
+    ctx=Depends(get_token_context),
+):
+    """오늘의 자동매매 실시간 피드 (최근 체결 내역)."""
+    user = require_active_user(ctx)
+    today = datetime.now(tz=SEOUL).date()
+    with session_scope() as session:
+        rows = (
+            session.query(AutoTradeOrder)
+            .filter(
+                AutoTradeOrder.user_id == user.id,
+                AutoTradeOrder.status.in_(["FILLED", "PARTIAL_FILLED"]),
+            )
+            .order_by(AutoTradeOrder.filled_at.desc(), AutoTradeOrder.id.desc())
+            .limit(limit)
+            .all()
+        )
+        items = []
+        for r in rows:
+            filled_at = getattr(r, "filled_at", None) or getattr(r, "requested_at", None)
+            time_str = filled_at.strftime("%H:%M") if filled_at else None
+            pnl = None
+            if str(getattr(r, "side", "")).upper() == "SELL":
+                pnl = getattr(r, "realized_pnl_krw", None)
+            items.append(TradeFeedItem(
+                time=time_str,
+                ticker=getattr(r, "ticker", None),
+                name=getattr(r, "name", None) or getattr(r, "ticker", None),
+                side=str(getattr(r, "side", "")).upper(),
+                qty=getattr(r, "filled_qty", None) or getattr(r, "qty", None),
+                price=getattr(r, "filled_price", None) or getattr(r, "price", None),
+                pnl=float(pnl) if pnl is not None else None,
+            ))
+        return TradeFeedResponse(items=items, total=len(items))
+
+
+@app.get("/autotrade/pnl-calendar", response_model=PnlCalendarResponse)
+def get_autotrade_pnl_calendar(
+    year: int = Query(..., ge=2024, le=2030),
+    month: int = Query(..., ge=1, le=12),
+    ctx=Depends(get_token_context),
+):
+    """월별 일간 수익 캘린더."""
+    user = require_active_user(ctx)
+    from calendar import monthrange
+    _, last_day = monthrange(year, month)
+    start_date = date(year, month, 1)
+    end_date = date(year, month, last_day)
+    with session_scope() as session:
+        rows = (
+            session.query(AutoTradeOrder)
+            .filter(
+                AutoTradeOrder.user_id == user.id,
+                AutoTradeOrder.status.in_(["FILLED", "PARTIAL_FILLED"]),
+            )
+            .order_by(AutoTradeOrder.filled_at.asc())
+            .all()
+        )
+        daily: dict[str, dict] = {}
+        for r in rows:
+            filled_at = getattr(r, "filled_at", None) or getattr(r, "requested_at", None)
+            if filled_at is None:
+                continue
+            d = filled_at.date() if hasattr(filled_at, "date") else filled_at
+            if d < start_date or d > end_date:
+                continue
+            ds = d.isoformat()
+            if ds not in daily:
+                daily[ds] = {"pnl": 0.0, "count": 0}
+            pnl = getattr(r, "realized_pnl_krw", None)
+            if pnl is not None:
+                daily[ds]["pnl"] += float(pnl)
+            daily[ds]["count"] += 1
+        days = [PnlCalendarDay(date=k, pnl=v["pnl"], trade_count=v["count"]) for k, v in sorted(daily.items())]
+        month_total = sum(d.pnl for d in days)
+        month_count = sum(d.trade_count for d in days)
+        return PnlCalendarResponse(days=days, month_total_pnl=month_total, month_trade_count=month_count)

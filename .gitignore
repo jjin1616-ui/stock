@@ -13,3 +13,13 @@
 .externalNativeBuild
 .cxx
 local.properties
+backups/
+.codex_artifacts/
+stock-ec2-key.pem
+*.db
+*.apk
+bugreport-*.zip
+exports/
+backend/.localdata/
+backend/korea_stock_dash.db
+backend/stock-ec2-key.pem

@@ -2218,19 +2218,49 @@ data class StrategySettingsUiState(
     val settingsHash: String = "",
 )
 
+/**
+ * 홈 화면 투자자 수급 요약 데이터.
+ * [individual], [foreign], [institution]은 각각 개인/외국인/기관의
+ * 3일 순매수 합계(백만원 단위).
+ */
+data class InvestorFlowSummary(
+    val individual: Long = 0L,
+    val foreign: Long = 0L,
+    val institution: Long = 0L,
+    val unit: String = "value",
+)
+
 class HomeViewModel(private val repository: StockRepository) : ViewModel() {
     val premarketState = mutableStateOf(UiState<PremarketReportDto>(loading = true))
     val favoritesState = mutableStateOf<List<com.example.stock.data.api.FavoriteItemDto>>(emptyList())
     val quoteState = mutableStateMapOf<String, RealtimeQuoteItemDto>()
     val miniChartState = mutableStateMapOf<String, List<ChartPointDto>>()
-    val indexChartState = mutableStateMapOf<String, List<ChartPointDto>>()
+    /** 시장 지수 (premarket report의 regime.market_snapshot에서 추출) */
+    val marketSnapshotState = mutableStateOf<com.example.stock.data.api.MarketSnapshotDto?>(null)
+    val regimeModeState = mutableStateOf<String?>(null)
+    /** 투자자 수급 현황 (개인/외국인/기관 3일 순매수 합계) */
+    val investorFlowState = mutableStateOf<InvestorFlowSummary?>(null)
+    /** 계좌 스냅샷 */
+    val accountState = mutableStateOf<com.example.stock.data.api.AutoTradeAccountSnapshotResponseDto?>(null)
+    /** 자동매매 성과 요약 */
+    val performanceState = mutableStateOf<com.example.stock.data.api.AutoTradePerformanceItemDto?>(null)
+    /** 자동매매 설정 (활성화 여부, 환경 등) */
+    val autoTradeEnabledState = mutableStateOf<Boolean?>(null)
+    val autoTradeEnvState = mutableStateOf<String?>(null)
+    /** 예약 대기 건수 */
+    val reservationCountState = mutableStateOf(0)
+    /** 뉴스 클러스터 (핫 뉴스) */
+    val newsClustersState = mutableStateOf<List<com.example.stock.data.api.NewsClusterListItemDto>>(emptyList())
+    /** 한줄 브리핑 */
+    val briefingState = mutableStateOf<String?>(null)
+    /** 시장 온도계 */
+    val marketTemperatureState = mutableStateOf<com.example.stock.data.api.MarketTemperatureDto?>(null)
+    /** 매매 피드 */
+    val tradeFeedState = mutableStateOf<List<com.example.stock.data.api.TradeFeedItemDto>>(emptyList())
+    /** 수익 캘린더 */
+    val pnlCalendarState = mutableStateOf<com.example.stock.data.api.PnlCalendarResponseDto?>(null)
     private var pollJob: Job? = null
     private var loadJob: Job? = null
-
-    companion object {
-        val INDEX_TICKERS = listOf("KPI200", "KQ150")
-        val INDEX_LABELS = mapOf("KPI200" to "코스피 200", "KQ150" to "코스닥 150")
-    }
 
     fun load() {
         loadJob?.cancel()
@@ -2248,6 +2278,16 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
                     repository.getPremarket(today).onSuccess { wrapped ->
                         premarketState.value = UiState(data = wrapped.data, loading = false, source = wrapped.source)
                         loadMiniCharts(wrapped.data)
+                        // regime에서 시장 지수 추출
+                        wrapped.data.regime?.let { regime ->
+                            regimeModeState.value = regime.mode
+                            regime.marketSnapshot?.let { snap ->
+                                marketSnapshotState.value = snap
+                            }
+                        }
+                        // 한줄 브리핑 + 시장 온도계
+                        briefingState.value = wrapped.data.briefing
+                        marketTemperatureState.value = wrapped.data.marketTemperature
                     }.onFailure { err ->
                         if (premarketState.value.data == null) {
                             premarketState.value = UiState(error = err.message, loading = false)
@@ -2259,17 +2299,29 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
                         favoritesState.value = items
                     }
                 }
-                val indexJob = async { loadIndexCharts() }
+                val flowJob = async { loadInvestorFlow() }
+                val acctJob = async { loadAccount() }
+                val perfJob = async { loadPerformance() }
+                val newsJob = async { loadNewsClusters() }
+                val feedJob = async { loadTradeFeed() }
+                val calendarJob = async { loadPnlCalendar() }
                 preJob.await()
                 favJob.await()
-                indexJob.await()
+                flowJob.await()
+                acctJob.await()
+                perfJob.await()
+                newsJob.await()
+                feedJob.await()
+                calendarJob.await()
             }
             startPolling()
         }
     }
 
     private fun loadMiniCharts(report: PremarketReportDto) {
-        val tickers = report.daytradeTop?.mapNotNull { it.ticker }.orEmpty().take(5)
+        val preTickers = report.daytradeTop?.mapNotNull { it.ticker }.orEmpty().take(5)
+        val favTickers = favoritesState.value.mapNotNull { it.ticker }
+        val tickers = (preTickers + favTickers).distinct()
         if (tickers.isEmpty()) return
         viewModelScope.launch {
             repository.getChartDailyBatch(tickers, days = 7).onSuccess { map ->
@@ -2280,14 +2332,66 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
         }
     }
 
-    private suspend fun loadIndexCharts() {
-        repository.getChartDailyBatch(INDEX_TICKERS, days = 30).onSuccess { map ->
-            map.forEach { (code, dto) ->
-                dto.points?.let { pts -> indexChartState[code] = pts }
+    /**
+     * /market/supply API로 종목별 투자자 수급 데이터를 가져와
+     * 전체 개인/외국인/기관 3일 순매수 합계를 계산한다.
+     */
+    private suspend fun loadInvestorFlow() {
+        repository.getMarketSupply(count = 60).onSuccess { resp ->
+            val items = resp.items.orEmpty()
+            var individual = 0L
+            var foreign = 0L
+            var institution = 0L
+            for (item in items) {
+                individual += (item.individual3d ?: 0).toLong()
+                foreign += (item.foreign3d ?: 0).toLong()
+                institution += (item.institution3d ?: 0).toLong()
+            }
+            investorFlowState.value = InvestorFlowSummary(
+                individual = individual,
+                foreign = foreign,
+                institution = institution,
+                unit = resp.unit ?: "value",
+            )
+        }
+    }
+
+    private suspend fun loadAccount() {
+        repository.getAutoTradeBootstrap(fast = true).onSuccess { boot ->
+            boot.account?.let { accountState.value = it }
+            boot.settings?.settings?.let { s ->
+                autoTradeEnabledState.value = s.enabled
+                autoTradeEnvState.value = s.environment
             }
         }
-        repository.getRealtimeQuotes(INDEX_TICKERS).onSuccess { map ->
-            quoteState.putAll(map)
+        repository.getAutoTradeReservations(status = "PENDING").onSuccess { res ->
+            reservationCountState.value = res.total ?: 0
+        }
+    }
+
+    private suspend fun loadPerformance() {
+        repository.getAutoTradePerformance(days = 30).onSuccess { perf ->
+            performanceState.value = perf.summary
+        }
+    }
+
+    private suspend fun loadNewsClusters() {
+        repository.getNewsClusters(limit = 3).onSuccess { resp ->
+            newsClustersState.value = resp.clusters.orEmpty().take(3)
+        }
+    }
+
+    private suspend fun loadTradeFeed() {
+        repository.getAutoTradeFeed(limit = 20).onSuccess { resp: com.example.stock.data.api.TradeFeedResponseDto ->
+            tradeFeedState.value = resp.items.orEmpty()
+        }
+    }
+
+    private suspend fun loadPnlCalendar() {
+        val seoul = kotlinx.datetime.TimeZone.of("Asia/Seoul")
+        val today = Clock.System.todayIn(seoul)
+        repository.getAutoTradePnlCalendar(year = today.year, month = today.monthNumber).onSuccess { resp: com.example.stock.data.api.PnlCalendarResponseDto ->
+            pnlCalendarState.value = resp
         }
     }
 
@@ -2304,7 +2408,7 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
     private suspend fun fetchQuotes() {
         val premarketTickers = premarketState.value.data?.daytradeTop?.mapNotNull { it.ticker }.orEmpty()
         val favTickers = favoritesState.value.mapNotNull { it.ticker }
-        val all = (INDEX_TICKERS + premarketTickers + favTickers).distinct().take(40)
+        val all = (premarketTickers + favTickers).distinct().take(40)
         if (all.isEmpty()) return
         repository.getRealtimeQuotes(all).onSuccess { map -> quoteState.putAll(map) }
     }

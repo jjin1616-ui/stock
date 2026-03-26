@@ -1,0 +1,13 @@
+{
+  "checks": {
+    "feature_t_to_trade_t1": true,
+    "gate_shift_1": true,
+    "daily_mean_r_nan_policy": true,
+    "gate_days_output": true,
+    "theme_rebalance_every_5": true,
+    "theme_fallback_rate_output": true,
+    "gate_off_primary_empty_policy": true,
+    "tick_invariant": true,
+    "no_autotrade_features": true
+  }
+}

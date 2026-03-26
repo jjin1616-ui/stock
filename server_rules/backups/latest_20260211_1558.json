@@ -1,0 +1,13 @@
+{
+  "version_name": "3.175",
+  "version_code": 300230,
+  "build_label": "V3_230",
+  "build_type": "debug",
+  "apk_url": "http://16.176.148.77/apk/download",
+  "apk_versioned_url": "http://16.176.148.77/apk/mstock_v3.175(300230)_V3_230_debug.apk",
+  "apk_filename": "mstock_v3.175(300230)_V3_230_debug.apk",
+  "sha256_url": "http://16.176.148.77/apk/app-latest.apk.sha256",
+  "sha256_versioned_url": "http://16.176.148.77/apk/mstock_v3.175(300230)_V3_230_debug.apk.sha256",
+  "published_at": "2026-02-11T06:57:39Z",
+  "notes": ""
+}

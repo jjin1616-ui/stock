@@ -933,10 +933,6 @@ class RunResult:
     metric: AutoTradeDailyMetric | None
 
 
-# --- 동시 실행 방지용 모듈 레벨 락 ---
-_RUN_AUTOTRADE_LOCK = Lock()
-
-
 def run_autotrade_once(
     session: Session,
     user_id: int,
@@ -950,30 +946,16 @@ def run_autotrade_once(
     execution_mode: str = "all",
     candidate_tickers: list[str] | set[str] | None = None,
 ) -> RunResult:
-    # 동시성 락: 이미 실행 중이면 스킵
-    acquired = _RUN_AUTOTRADE_LOCK.acquire(blocking=False)
-    if not acquired:
-        logger.warning("[autotrade] run_autotrade_once 이미 실행 중 — 스킵합니다 (user_id=%s)", user_id)
-        return RunResult(
-            run_id="SKIPPED",
-            message="ALREADY_RUNNING",
-            candidates=[],
-            created_orders=[],
-            metric=None,
-        )
-    try:
-        return _run_autotrade_once_inner(
-            session, user_id, cfg,
-            dry_run=dry_run,
-            limit=limit,
-            broker_credentials=broker_credentials,
-            record_skipped_orders=record_skipped_orders,
-            candidate_profile=candidate_profile,
-            execution_mode=execution_mode,
-            candidate_tickers=candidate_tickers,
-        )
-    finally:
-        _RUN_AUTOTRADE_LOCK.release()
+    return _run_autotrade_once_inner(
+        session, user_id, cfg,
+        dry_run=dry_run,
+        limit=limit,
+        broker_credentials=broker_credentials,
+        record_skipped_orders=record_skipped_orders,
+        candidate_profile=candidate_profile,
+        execution_mode=execution_mode,
+        candidate_tickers=candidate_tickers,
+    )
 
 
 def _run_autotrade_once_inner(

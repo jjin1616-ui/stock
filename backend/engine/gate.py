@@ -34,21 +34,20 @@ def compute_gate(
     N: int,
     threshold: float = 0.0,
     *,
-    intraday: bool | None = None,
+    intraday: bool = False,
 ) -> pd.DataFrame:
     """Gate 시그널 계산.
 
     Args:
-        intraday: 장중 모드 강제 지정. None이면 현재 시각으로 자동 판단.
-            - 장중(True): 당일 데이터 포함 (shift=0) → gate 지연 최소화
-            - 장외(False): 기존 shift=1 유지 → 미래 참조 방지
+        intraday: 장중 모드.
+            - True: 당일 데이터 포함 (shift=0) → 실시간 경로에서만 명시적으로 사용
+            - False(기본): shift=1 유지 → 미래 참조 방지
     """
     if daily.empty:
         return pd.DataFrame(columns=["date", "daily_mean_R", "gate_metric", "gate_on"])
     out = daily.sort_values("date").copy()
 
-    is_intraday = intraday if intraday is not None else _is_market_hours()
-    shift_n = 0 if is_intraday else 1
+    shift_n = 0 if intraday else 1
 
     out["gate_metric"] = out["daily_mean_R"].rolling(N, min_periods=N).mean().shift(shift_n)
     out["gate_on"] = out["gate_metric"].fillna(-1.0) >= threshold

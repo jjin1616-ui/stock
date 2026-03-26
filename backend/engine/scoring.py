@@ -64,6 +64,8 @@ def classify_regime(
     # 20일 실현변동성 (연환산)
     realized_vol = float(daily_ret.std() * np.sqrt(252))
     # 20일 누적수익률
+    if recent.iloc[0] == 0:
+        return None
     cum_ret = float(recent.iloc[-1] / recent.iloc[0] - 1.0)
 
     high_vol = realized_vol >= vol_threshold

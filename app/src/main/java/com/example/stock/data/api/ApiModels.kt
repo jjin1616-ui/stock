@@ -23,6 +23,63 @@ data class PremarketReportDto(
     @SerialName("delta_explain") val deltaExplain: List<String>? = emptyList(),
     val themes: List<ThemeItemDto>? = emptyList(),
     @SerialName("hard_rules") val hardRules: List<String>? = emptyList(),
+    val regime: RegimeDto? = null,
+    val briefing: String? = null,
+    @SerialName("market_temperature") val marketTemperature: MarketTemperatureDto? = null,
+)
+
+@Serializable
+data class RegimeDto(
+    val mode: String? = null,
+    val bullets: List<String>? = emptyList(),
+    @SerialName("market_snapshot") val marketSnapshot: MarketSnapshotDto? = null,
+)
+
+@Serializable
+data class MarketSnapshotDto(
+    @SerialName("kospi_close") val kospiClose: Double? = null,
+    @SerialName("kosdaq_close") val kosdaqClose: Double? = null,
+    @SerialName("usdkrw_close") val usdkrwClose: Double? = null,
+)
+
+@Serializable
+data class MarketTemperatureDto(
+    val score: Int? = null,
+    val label: String? = null,
+    @SerialName("gate_on") val gateOn: Boolean? = null,
+)
+
+// ── 매매 피드 ──
+@Serializable
+data class TradeFeedItemDto(
+    val time: String? = null,
+    val ticker: String? = null,
+    val name: String? = null,
+    val side: String? = null,
+    val qty: Int? = null,
+    val price: Double? = null,
+    val pnl: Double? = null,
+)
+
+@Serializable
+data class TradeFeedResponseDto(
+    val items: List<TradeFeedItemDto>? = emptyList(),
+    val total: Int? = 0,
+)
+
+// ── 수익 캘린더 ──
+@Serializable
+data class PnlCalendarDayDto(
+    val date: String? = null,
+    val pnl: Double? = 0.0,
+    @SerialName("trade_count") val tradeCount: Int? = 0,
+)
+
+@Serializable
+data class PnlCalendarResponseDto(
+    val days: List<PnlCalendarDayDto>? = emptyList(),
+    @SerialName("month_total_pnl") val monthTotalPnl: Double? = 0.0,
+    @SerialName("month_trade_count") val monthTradeCount: Int? = 0,
 )
 
 @Serializable
@@ -642,6 +699,7 @@ data class SupplyResponseDto(
     @SerialName("bas_dd") val basDd: String? = "",
     val source: String? = "LIVE",
     val message: String? = null,
+    val unit: String? = "value",
     @SerialName("universe_count") val universeCount: Int? = 0,
     @SerialName("candidate_quotes") val candidateQuotes: Int? = 0,
     val notes: List<String>? = emptyList(),

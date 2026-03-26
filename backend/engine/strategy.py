@@ -547,10 +547,10 @@ def _build_longterm_v2(
             continue
 
         thesis_parts = [
-            f"3개월 추세 +{ret60 * 100.0:.1f}%",
-            f"중기 정렬(MA20>MA60)",
-            f"시장 대비 강도 {rs60 * 100.0:+.1f}%",
-            f"최근 낙폭 {dd60 * 100.0:.1f}%",
+            f"3개월간 {'상승' if ret60 > 0 else '하락'} {abs(ret60) * 100.0:.1f}%",
+            "중기 추세 양호" if ret60 > 0 else "중기 추세 주의",
+            f"시장 대비 {'강세' if rs60 > 0 else '약세'} {abs(rs60) * 100.0:.1f}%",
+            f"눌림 폭 {abs(dd60) * 100.0:.1f}%{'로 안정적' if abs(dd60) < 0.1 else ' 주의'}",
         ]
         # 약세장 면책 문구 추가
         if is_bear and disclaimer:
@@ -564,7 +564,7 @@ def _build_longterm_v2(
                 "buy_zone": {"low": buy_low, "high": buy_high},
                 "target_12m": target,
                 "stop_loss": stop,
-                "thesis": " · ".join(thesis_parts[:4]),
+                "thesis": " · ".join(thesis_parts),
                 "_score": score,
                 "_cap": cap_map.get(code, 0.0),
             }
@@ -847,15 +847,14 @@ def generate_premarket(
     def _build_thesis(row: pd.Series) -> str:
         reasons: list[str] = []
         if row.get("z_ta", 0.0) >= z_threshold:
-            reasons.append("수급 가속(TA) 상위")
+            reasons.append("거래대금 급증 중")
         if row.get("z_re", 0.0) >= z_threshold:
-            reasons.append("캔들 효율(RE) 우수")
+            reasons.append("최근 캔들 효율 양호")
         if row.get("z_rs", 0.0) >= z_threshold:
-            reasons.append("시장 대비 강세(RS)")
-        # add a liquidity hint to diversify reasons
+            reasons.append("시장 평균 대비 강세")
         try:
             if float(row.get("value_ma20", 0.0)) >= settings.min_value_krw * 2:
-                reasons.append("유동성 상위")
+                reasons.append("유동성 풍부")
         except Exception:
             pass
         if algo_version == "V2":
@@ -863,9 +862,9 @@ def generate_premarket(
             if atr_pct <= 0.03:
                 reasons.append("변동성 안정 구간")
             elif atr_pct >= 0.09:
-                reasons.append("고변동(비중 축소)")
+                reasons.append("고변동 주의(비중 축소)")
         if not reasons:
-            reasons.append("점수 상위 + 테마 분산")
+            reasons.append("종합 점수 상위")
         return " · ".join(reasons[:3])
 
     candidates["thesis"] = candidates.apply(_build_thesis, axis=1)
@@ -1044,10 +1043,46 @@ def generate_premarket(
     except Exception:
         themes_summary = []
 
+    # ── 한줄 브리핑 생성 ──
+    _briefing_parts: list[str] = []
+    if _regime is not None:
+        _regime_label = {"LOW_VOL_UP": "강세장", "HIGH_VOL_UP": "강세장", "LOW_VOL_FLAT": "약세장", "HIGH_VOL_DOWN": "약세장"}.get(_regime.value, "중립")
+        _briefing_parts.append(f"시장 {_regime_label}")
+    if gate_on:
+        _briefing_parts.append(f"단타 {len(primary_items)}종목 추천")
+    else:
+        _briefing_parts.append("Gate OFF — 보수적 접근 권장")
+    if longterm:
+        _briefing_parts.append(f"장타 {len(longterm[:longterm_limit])}종목 유효")
+    _briefing = " · ".join(_briefing_parts) if _briefing_parts else "오늘의 시장 분석을 준비 중입니다."
+
+    # ── 시장 온도계 (1~10) ──
+    _temp_score = 5  # 기본 중립
+    if _regime is not None:
+        if _regime.value in ("LOW_VOL_UP", "HIGH_VOL_UP"):
+            _temp_score += 2
+        elif _regime.value in ("LOW_VOL_FLAT", "HIGH_VOL_DOWN"):
+            _temp_score -= 2
+    if gate_on:
+        _temp_score += 1
+    else:
+        _temp_score -= 1
+    if not bench_kq.empty and len(bench_kq) >= 2:
+        _kq_chg = (float(bench_kq.iloc[-1]) / float(bench_kq.iloc[-2]) - 1.0) * 100.0
+        if _kq_chg >= 1.0:
+            _temp_score += 1
+        elif _kq_chg <= -1.0:
+            _temp_score -= 1
+    _temp_score = max(1, min(10, _temp_score))
+    _temp_labels = {1: "극도 공포", 2: "공포", 3: "약세", 4: "불안", 5: "중립", 6: "관심", 7: "낙관", 8: "강세", 9: "과열", 10: "극도 과열"}
+    _market_temperature = {"score": _temp_score, "label": _temp_labels.get(_temp_score, "중립"), "gate_on": bool(gate_on)}
+
     payload = {
         "date": report_date.isoformat(),
         "generated_at": datetime.now().isoformat(),
         "status": {"source": "LIVE", "algo_version": algo_version},
+        "briefing": _briefing,
+        "market_temperature": _market_temperature,
         "daytrade_gate": {
             "on": bool(gate_on),
             "lookback_days": settings.gate_lookback,
@@ -1070,6 +1105,15 @@ def generate_premarket(
             "gate off면 보수 모드(분할/소액)",
             ("V2: 변동성 적응형 진입/손절/목표" if algo_version == "V2" else "V1: 고정 비율 진입/손절/목표"),
         ],
+        "regime": {
+            "mode": _regime.value if _regime is not None else None,
+            "bullets": [],
+            "market_snapshot": {
+                "kospi_close": float(bench_ks.iloc[-1]) if not bench_ks.empty else None,
+                "kosdaq_close": float(bench_kq.iloc[-1]) if not bench_kq.empty else None,
+                "usdkrw_close": None,
+            },
+        } if not bench_ks.empty or not bench_kq.empty else None,
     }
 
     diagnostics = {
