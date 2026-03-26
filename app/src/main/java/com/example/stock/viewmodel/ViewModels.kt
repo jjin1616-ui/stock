@@ -104,21 +104,29 @@ class PremarketViewModel(private val repository: StockRepository) : ViewModel() 
     val evalState = mutableStateOf(UiState<EvalMonthlyDto>())
     val quoteState = mutableStateMapOf<String, RealtimeQuoteItemDto>()
     val miniChartState = mutableStateMapOf<String, List<ChartPointDto>>()
+    private val miniChartFetchedAt = mutableMapOf<String, Long>()
+    private val MINI_CHART_TTL_MS = 5 * 60 * 1000L
     private var quoteJob: Job? = null
     private var pollJob: Job? = null
     private var fallbackRecoveryJob: Job? = null
     private var forceRegenOnce: Boolean = false
     private var fallbackRecoveryDoneForDate: String? = null
+    private val quoteMissCount = mutableMapOf<String, Int>()
+    private var loadJob: Job? = null
 
     fun load(force: Boolean = false) {
+        loadJob?.cancel()
+        quoteJob?.cancel()
+        pollJob?.cancel()
+        fallbackRecoveryJob?.cancel()
         val seoul = TimeZone.of("Asia/Seoul")
         val today = Clock.System.todayIn(seoul)
         val todayStr = today.toString()
         val yesterdayStr = today.minus(1, DateTimeUnit.DAY).toString()
 
         reportState.value = reportState.value.copy(loading = true, error = null)
-        
-        viewModelScope.launch {
+
+        loadJob = viewModelScope.launch {
             // 1. 즉시 캐시 데이터 표시 (오늘 혹은 가장 최근 것)
             val fast = repository.getPremarketFast(todayStr)
             reportState.value = UiState(
@@ -246,29 +254,35 @@ class PremarketViewModel(private val repository: StockRepository) : ViewModel() 
         val daytradePrefetch = maxOf(12, minOf(settings.daytradeDisplayCount, 60))
         val longtermPrefetch = maxOf(8, minOf(settings.longtermDisplayCount, 20))
         val target = (daytradeTickers.take(daytradePrefetch) + longtermTickers.take(longtermPrefetch)).distinct()
+        val now = System.currentTimeMillis()
         target.forEach { ticker ->
             val cached = miniChartState[ticker]
-            if ((cached?.size ?: 0) >= 2) return@forEach
+            val fetchedAt = miniChartFetchedAt[ticker] ?: 0L
+            if ((cached?.size ?: 0) >= 2 && (now - fetchedAt) < MINI_CHART_TTL_MS) return@forEach
             viewModelScope.launch {
                 repository.getChartDaily(ticker, 7)
                     .onSuccess { dto ->
                         val points = dto.points.orEmpty().takeLast(7)
-                        if (points.size >= 2) miniChartState[ticker] = points else miniChartState.remove(ticker)
+                        if (points.size >= 2) { miniChartState[ticker] = points; miniChartFetchedAt[ticker] = System.currentTimeMillis() }
+                        else miniChartState.remove(ticker)
                     }
             }
         }
     }
 
     fun ensureMiniCharts(tickers: List<String>) {
+        val now = System.currentTimeMillis()
         val target = tickers.distinct().filter { it.isNotBlank() }.take(40)
         target.forEach { ticker ->
             val cached = miniChartState[ticker]
-            if ((cached?.size ?: 0) >= 2) return@forEach
+            val fetchedAt = miniChartFetchedAt[ticker] ?: 0L
+            if ((cached?.size ?: 0) >= 2 && (now - fetchedAt) < MINI_CHART_TTL_MS) return@forEach
             viewModelScope.launch {
                 repository.getChartDaily(ticker, 7)
                     .onSuccess { dto ->
                         val points = dto.points.orEmpty().takeLast(7)
-                        if (points.size >= 2) miniChartState[ticker] = points else miniChartState.remove(ticker)
+                        if (points.size >= 2) { miniChartState[ticker] = points; miniChartFetchedAt[ticker] = System.currentTimeMillis() }
+                        else miniChartState.remove(ticker)
                     }
             }
         }
@@ -296,7 +310,12 @@ class PremarketViewModel(private val repository: StockRepository) : ViewModel() 
                 if (tickers.isNotEmpty()) {
                     val merged = fetchQuotesChunked(tickers)
                     if (merged.isNotEmpty()) {
-                        quoteState.keys.filter { key -> key in tickers && key !in merged }.forEach { quoteState.remove(it) }
+                        merged.keys.forEach { quoteMissCount.remove(it) }
+                        tickers.filter { it in quoteState && it !in merged }.forEach { key ->
+                            val count = (quoteMissCount[key] ?: 0) + 1
+                            if (count >= 3) { quoteState.remove(key); quoteMissCount.remove(key) }
+                            else quoteMissCount[key] = count
+                        }
                         quoteState.putAll(merged)
                     }
                 }
@@ -386,6 +405,7 @@ class PremarketViewModel(private val repository: StockRepository) : ViewModel() 
     }
 
     override fun onCleared() {
+        loadJob?.cancel()
         quoteJob?.cancel()
         pollJob?.cancel()
         fallbackRecoveryJob?.cancel()
@@ -2198,10 +2218,111 @@ data class StrategySettingsUiState(
     val settingsHash: String = "",
 )
 
+class HomeViewModel(private val repository: StockRepository) : ViewModel() {
+    val premarketState = mutableStateOf(UiState<PremarketReportDto>(loading = true))
+    val favoritesState = mutableStateOf<List<com.example.stock.data.api.FavoriteItemDto>>(emptyList())
+    val quoteState = mutableStateMapOf<String, RealtimeQuoteItemDto>()
+    val miniChartState = mutableStateMapOf<String, List<ChartPointDto>>()
+    val indexChartState = mutableStateMapOf<String, List<ChartPointDto>>()
+    private var pollJob: Job? = null
+    private var loadJob: Job? = null
+
+    companion object {
+        val INDEX_TICKERS = listOf("KPI200", "KQ150")
+        val INDEX_LABELS = mapOf("KPI200" to "코스피 200", "KQ150" to "코스닥 150")
+    }
+
+    fun load() {
+        loadJob?.cancel()
+        pollJob?.cancel()
+        loadJob = viewModelScope.launch {
+            val seoul = kotlinx.datetime.TimeZone.of("Asia/Seoul")
+            val today = Clock.System.todayIn(seoul).toString()
+
+            premarketState.value = premarketState.value.copy(loading = true, error = null)
+            val fast = repository.getPremarketFast(today)
+            premarketState.value = UiState(data = fast.data, loading = false, source = fast.source)
+
+            coroutineScope {
+                val preJob = async {
+                    repository.getPremarket(today).onSuccess { wrapped ->
+                        premarketState.value = UiState(data = wrapped.data, loading = false, source = wrapped.source)
+                        loadMiniCharts(wrapped.data)
+                    }.onFailure { err ->
+                        if (premarketState.value.data == null) {
+                            premarketState.value = UiState(error = err.message, loading = false)
+                        }
+                    }
+                }
+                val favJob = async {
+                    repository.getFavorites().onSuccess { items ->
+                        favoritesState.value = items
+                    }
+                }
+                val indexJob = async { loadIndexCharts() }
+                preJob.await()
+                favJob.await()
+                indexJob.await()
+            }
+            startPolling()
+        }
+    }
+
+    private fun loadMiniCharts(report: PremarketReportDto) {
+        val tickers = report.daytradeTop?.mapNotNull { it.ticker }.orEmpty().take(5)
+        if (tickers.isEmpty()) return
+        viewModelScope.launch {
+            repository.getChartDailyBatch(tickers, days = 7).onSuccess { map ->
+                map.forEach { (code, dto) ->
+                    dto.points?.let { pts -> miniChartState[code] = pts }
+                }
+            }
+        }
+    }
+
+    private suspend fun loadIndexCharts() {
+        repository.getChartDailyBatch(INDEX_TICKERS, days = 30).onSuccess { map ->
+            map.forEach { (code, dto) ->
+                dto.points?.let { pts -> indexChartState[code] = pts }
+            }
+        }
+        repository.getRealtimeQuotes(INDEX_TICKERS).onSuccess { map ->
+            quoteState.putAll(map)
+        }
+    }
+
+    private fun startPolling() {
+        pollJob?.cancel()
+        pollJob = viewModelScope.launch {
+            while (isActive) {
+                fetchQuotes()
+                delay(30_000L)
+            }
+        }
+    }
+
+    private suspend fun fetchQuotes() {
+        val premarketTickers = premarketState.value.data?.daytradeTop?.mapNotNull { it.ticker }.orEmpty()
+        val favTickers = favoritesState.value.mapNotNull { it.ticker }
+        val all = (INDEX_TICKERS + premarketTickers + favTickers).distinct().take(40)
+        if (all.isEmpty()) return
+        repository.getRealtimeQuotes(all).onSuccess { map -> quoteState.putAll(map) }
+    }
+
+    fun stopPolling() { pollJob?.cancel() }
+
+    override fun onCleared() {
+        loadJob?.cancel()
+        pollJob?.cancel()
+        super.onCleared()
+    }
+}
+
 class AppViewModelFactory(private val repository: StockRepository) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         return when {
+            modelClass.isAssignableFrom(HomeViewModel::class.java) -> HomeViewModel(repository) as T
             modelClass.isAssignableFrom(PremarketViewModel::class.java) -> PremarketViewModel(repository) as T
             modelClass.isAssignableFrom(EodViewModel::class.java) -> EodViewModel(repository) as T
             modelClass.isAssignableFrom(AlertsViewModel::class.java) -> AlertsViewModel(repository) as T

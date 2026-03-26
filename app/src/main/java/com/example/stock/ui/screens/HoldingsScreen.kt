@@ -88,6 +88,7 @@ import com.example.stock.viewmodel.AppViewModelFactory
 import com.example.stock.viewmodel.HoldingsViewModel
 import java.net.URL
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -145,7 +146,7 @@ private data class HoldingSummary(
     val totalCost: Double,
     val totalEval: Double,
     val totalPnl: Double,
-    val pnlPct: Double,
+    val pnlPct: Double?,
 )
 
 private data class HoldingRoiStats(
@@ -225,7 +226,7 @@ fun HoldingsScreen() {
     val vm: HoldingsViewModel = viewModel(factory = AppViewModelFactory(ServiceLocator.repository(context)))
     val snackbarHostState = remember { SnackbarHostState() }
     val holdingDetailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val today = LocalDate.now()
+    val today = LocalDate.now(ZoneId.of("Asia/Seoul"))
     val todayText = today.format(isoDateFormatter)
     var pendingFilter by rememberSaveable { mutableStateOf(HoldingsFilter.ALL) }
     var appliedFilter by rememberSaveable { mutableStateOf(HoldingsFilter.ALL) }
@@ -1079,7 +1080,7 @@ private fun HoldingsSummaryCard(
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SummaryMetricCell(label = "총 손익", value = formatSignedWon(summary.totalPnl))
-                SummaryMetricCell(label = "수익률", value = formatSignedPct(summary.pnlPct))
+                SummaryMetricCell(label = "수익률", value = summary.pnlPct?.let { formatSignedPct(it) } ?: "-")
             }
             val sourceLine = buildSourceLine(filter, demo, prod)
             if (sourceLine.isNotBlank()) {
@@ -1238,7 +1239,7 @@ private fun toHoldingDetail(row: HoldingRow, quote: RealtimeQuoteItemDto?): Hold
 
 private fun computeSummary(rows: List<HoldingRow>, quoteMap: Map<String, RealtimeQuoteItemDto>): HoldingSummary {
     if (rows.isEmpty()) {
-        return HoldingSummary(count = 0, totalCost = 0.0, totalEval = 0.0, totalPnl = 0.0, pnlPct = 0.0)
+        return HoldingSummary(count = 0, totalCost = 0.0, totalEval = 0.0, totalPnl = 0.0, pnlPct = null)
     }
     val totalCost = rows.sumOf { it.avgPrice * it.qty.toDouble() }
     val totalEval = rows.sumOf { row ->
@@ -1246,7 +1247,7 @@ private fun computeSummary(rows: List<HoldingRow>, quoteMap: Map<String, Realtim
         current * row.qty.toDouble()
     }
     val totalPnl = totalEval - totalCost
-    val pnlPct = if (totalCost > 0.0) (totalPnl / totalCost) * 100.0 else 0.0
+    val pnlPct = if (totalCost > 0.0) (totalPnl / totalCost) * 100.0 else null
     return HoldingSummary(
         count = rows.size,
         totalCost = totalCost,

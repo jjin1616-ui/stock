@@ -27,6 +27,7 @@ import com.example.stock.ServiceLocator
 import com.example.stock.ui.common.TossBottomBar
 import com.example.stock.ui.screens.AlertsScreen
 import com.example.stock.ui.screens.AutoTradeScreen
+import com.example.stock.ui.screens.HomeScreen
 import com.example.stock.ui.screens.HoldingsScreen
 import com.example.stock.ui.screens.FavoritesScreen
 import com.example.stock.ui.screens.LongtermScreen
@@ -56,6 +57,7 @@ private data class TabAccessState(
 )
 
 enum class AppTab(val route: String, val label: String, val iconRes: Int) {
+    HOME("home", "홈", R.drawable.ic_tab_home),
     PREMARKET("premarket", "단타", R.drawable.ic_tab_lightning),
     SUPPLY("supply", "수급", R.drawable.ic_tab_supply),
     AUTOTRADE("autotrade", "자동", R.drawable.ic_tab_eod),
@@ -92,6 +94,10 @@ private fun resolveTabOrder(csv: String): List<AppTab> {
             }
         }
 
+    if (!seen.contains(AppTab.HOME.route)) {
+        ordered.add(0, AppTab.HOME)
+        seen.add(AppTab.HOME.route)
+    }
     if (!seen.contains(AppTab.HOLDINGS.route)) {
         val insertAt = ordered.indexOfFirst { it.route == AppTab.AUTOTRADE.route }
         val targetIndex = if (insertAt >= 0) insertAt + 1 else ordered.size
@@ -100,7 +106,7 @@ private fun resolveTabOrder(csv: String): List<AppTab> {
     }
     if (!seen.contains(AppTab.SUPPLY.route)) {
         val insertAt = ordered.indexOfFirst { it.route == AppTab.PREMARKET.route }
-        val targetIndex = if (insertAt >= 0) insertAt + 1 else 0
+        val targetIndex = if (insertAt >= 0) insertAt + 1 else ordered.size
         ordered.add(targetIndex, AppTab.SUPPLY)
         seen.add(AppTab.SUPPLY.route)
     }
@@ -116,6 +122,7 @@ private fun resolveTabOrder(csv: String): List<AppTab> {
 private fun toTabOrderCsv(order: List<AppTab>): String = order.joinToString(",") { it.route }
 
 private fun isTabAllowed(tab: AppTab, access: TabAccessState): Boolean = when (tab) {
+    AppTab.HOME -> true
     AppTab.PREMARKET -> access.daytradeAllowed
     AppTab.SUPPLY -> access.supplyAllowed
     AppTab.AUTOTRADE -> access.autotradeAllowed
@@ -230,6 +237,9 @@ fun AppNavigation(startRoute: String? = null, modifier: Modifier = Modifier) {
             startDestination = start,
             modifier = modifier.padding(inner),
         ) {
+            composable(AppTab.HOME.route) {
+                HomeScreen()
+            }
             composable(AppTab.PREMARKET.route) {
                 if (tabAccess.daytradeAllowed) {
                     PreMarketScreen()
