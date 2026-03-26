@@ -136,7 +136,7 @@ class DeviceRegisterRequest(BaseModel):
 
 class AlertHistoryItem(BaseModel):
     ts: datetime
-    type: Literal["PREMARKET", "EOD", "TRIGGER"]
+    type: Literal["PREMARKET", "EOD", "TRIGGER", "ADMIN", "UPDATE"]
     title: str
     body: str
     payload: dict[str, Any]

@@ -342,7 +342,10 @@ def compute_gate_status(
     if daily.empty:
         return False, pd.DataFrame(columns=["date", "daily_mean_R", "gate_metric", "gate_on"])
     daily = daily.sort_values("date").copy()
-    metric = daily["daily_mean_R"].rolling(settings.gate_lookback, min_periods=settings.gate_lookback).mean().shift(1)
+    # 장중이면 당일 데이터 포함(shift=0), 장외면 기존 shift=1
+    from .gate import _is_market_hours
+    shift_n = 0 if _is_market_hours() else 1
+    metric = daily["daily_mean_R"].rolling(settings.gate_lookback, min_periods=settings.gate_lookback).mean().shift(shift_n)
     daily["gate_metric"] = metric
     if settings.gate_quantile is not None:
         thresh = metric.quantile(settings.gate_quantile)
@@ -431,6 +434,32 @@ def _atr_at(df: pd.DataFrame, loc: int, period: int = 14) -> tuple[float, float]
     return atr_v, atr_v / close_v
 
 
+def _market_regime(bench_ks: pd.Series, signal_date: pd.Timestamp) -> tuple[str, str]:
+    """KOSPI 20일/60일 MA 비교로 시장 체제 판단.
+
+    Returns:
+        (regime, disclaimer)
+        regime: "BULL" | "BEAR"
+        disclaimer: 약세장일 때 면책 문구, 강세장이면 빈 문자열
+    """
+    if bench_ks is None or bench_ks.empty or signal_date not in bench_ks.index:
+        return "BEAR", "⚠ 시장 데이터 부족 — 보수적 운용 권장"
+    ma20 = bench_ks.rolling(20, min_periods=20).mean()
+    ma60 = bench_ks.rolling(60, min_periods=60).mean()
+    ma20_v = float(ma20.loc[signal_date]) if pd.notna(ma20.loc[signal_date]) else 0.0
+    ma60_v = float(ma60.loc[signal_date]) if pd.notna(ma60.loc[signal_date]) else 0.0
+    if ma20_v <= 0 or ma60_v <= 0:
+        return "BEAR", "⚠ 시장 이동평균 계산 불가 — 보수적 운용 권장"
+    if ma20_v >= ma60_v:
+        return "BULL", ""
+    return "BEAR", "⚠ KOSPI 약세 구간(MA20<MA60) — 장기 추천 축소, 보수적 운용 권장"
+
+
+# 약세장 장타 Gate: 최소 score 상향, 추천 수 축소
+_BEAR_LONGTERM_MIN_SCORE = 0.15   # 강세장엔 제한 없음
+_BEAR_LONGTERM_MAX_PICKS = 5      # 강세장엔 제한 없음
+
+
 def _build_longterm_v2(
     signal_date: pd.Timestamp,
     panel: dict[str, pd.DataFrame],
@@ -440,6 +469,10 @@ def _build_longterm_v2(
     bench_kq: pd.Series,
     bench_ks: pd.Series,
 ) -> list[dict[str, object]]:
+    # --- 시장 체제 Gate ---
+    regime, disclaimer = _market_regime(bench_ks, signal_date)
+    is_bear = regime == "BEAR"
+
     rows: list[dict[str, object]] = []
     for code, df in panel.items():
         if code in exclude_codes:
@@ -508,12 +541,20 @@ def _build_longterm_v2(
             continue
 
         score = (ret60 * 0.45) + (ret120 * 0.20) + (rs60 * 0.20) + ((0.30 + dd60) * 0.15)
+
+        # 약세장: 최소 점수 미달 종목 제외
+        if is_bear and score < _BEAR_LONGTERM_MIN_SCORE:
+            continue
+
         thesis_parts = [
             f"3개월 추세 +{ret60 * 100.0:.1f}%",
             f"중기 정렬(MA20>MA60)",
             f"시장 대비 강도 {rs60 * 100.0:+.1f}%",
             f"최근 낙폭 {dd60 * 100.0:.1f}%",
         ]
+        # 약세장 면책 문구 추가
+        if is_bear and disclaimer:
+            thesis_parts.append(disclaimer)
         rows.append(
             {
                 "ticker": code,
@@ -523,12 +564,17 @@ def _build_longterm_v2(
                 "buy_zone": {"low": buy_low, "high": buy_high},
                 "target_12m": target,
                 "stop_loss": stop,
-                "thesis": " · ".join(thesis_parts[:3]),
+                "thesis": " · ".join(thesis_parts[:4]),
                 "_score": score,
                 "_cap": cap_map.get(code, 0.0),
             }
         )
     rows.sort(key=lambda x: (x.get("_score", -999.0), x.get("_cap", 0.0)), reverse=True)
+
+    # 약세장: 추천 수 축소
+    if is_bear:
+        rows = rows[:_BEAR_LONGTERM_MAX_PICKS]
+
     for r in rows:
         r.pop("_score", None)
         r.pop("_cap", None)
@@ -752,6 +798,17 @@ def generate_premarket(
     candidates["z_ta"] = robust_z(candidates["ta_w"])
     candidates["z_re"] = robust_z(candidates["re_w"])
     candidates["z_rs"] = robust_z(candidates["rs_w"])
+
+    # 시장 체제 기반 동적 가중치 적용 (벤치마크 있을 때만, 없으면 프리셋 폴백)
+    from .scoring import classify_regime, REGIME_WEIGHTS
+    _active_bench = bench_kq if not bench_kq.empty else bench_ks
+    _regime = classify_regime(_active_bench, window=20) if not _active_bench.empty else None
+    if _regime is not None:
+        w_ta, w_re, w_rs = REGIME_WEIGHTS[_regime]
+        logger.info("시장 체제=%s → 동적 가중치 TA=%.2f RE=%.2f RS=%.2f", _regime.value, w_ta, w_re, w_rs)
+    else:
+        logger.info("시장 체제 판단 불가 → 프리셋 폴백 가중치 TA=%.2f RE=%.2f RS=%.2f", w_ta, w_re, w_rs)
+
     candidates["score"] = w_ta * candidates["z_ta"] + w_re * candidates["z_re"] + w_rs * candidates["z_rs"]
     if algo_version == "V2":
         atr_pct_list: list[float] = []
@@ -771,14 +828,29 @@ def generate_premarket(
         candidates["z_atr"] = robust_z(candidates["atr_pct_f"])
         candidates["z_liq"] = robust_z(candidates["liq_log"])
         candidates["score"] = candidates["score"] + (0.12 * candidates["z_liq"]) - (0.10 * candidates["z_atr"])
+    # --- 동적 z-score 임계값: 시장 변동성(ATR 중앙값) 기반 ---
+    # 기본 0.6, 변동성 비례 조정, 범위 0.3~1.2
+    _Z_BASE = 0.6
+    _Z_MIN, _Z_MAX = 0.3, 1.2
+    _NORMAL_VOL = 0.03  # 평균적 시장 ATR% 기준치
+    if algo_version == "V2" and "atr_pct_f" in candidates.columns:
+        _mkt_vol = float(candidates["atr_pct_f"].median())
+        if _mkt_vol > 0 and _NORMAL_VOL > 0:
+            # 변동성↑ → 임계값↓(더 많은 종목에 사유 부여), 변동성↓ → 임계값↑(엄선)
+            z_threshold = max(_Z_MIN, min(_Z_MAX, _Z_BASE / (_mkt_vol / _NORMAL_VOL)))
+        else:
+            z_threshold = _Z_BASE
+    else:
+        z_threshold = _Z_BASE
+
     # build per-ticker thesis for explainability
     def _build_thesis(row: pd.Series) -> str:
         reasons: list[str] = []
-        if row.get("z_ta", 0.0) >= 0.6:
+        if row.get("z_ta", 0.0) >= z_threshold:
             reasons.append("수급 가속(TA) 상위")
-        if row.get("z_re", 0.0) >= 0.6:
+        if row.get("z_re", 0.0) >= z_threshold:
             reasons.append("캔들 효율(RE) 우수")
-        if row.get("z_rs", 0.0) >= 0.6:
+        if row.get("z_rs", 0.0) >= z_threshold:
             reasons.append("시장 대비 강세(RS)")
         # add a liquidity hint to diversify reasons
         try:

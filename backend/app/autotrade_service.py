@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 import copy
@@ -7,6 +8,8 @@ import json
 from threading import Lock
 from typing import Any
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
@@ -477,6 +480,10 @@ def _normalize_reentry_policy(raw: str | None) -> str:
     return p if p in {"immediate", "cooldown", "day_block", "manual_block"} else "cooldown"
 
 
+# manual_block 기본 만료 기간 (일)
+_MANUAL_BLOCK_EXPIRY_DAYS = 7
+
+
 def _active_manual_reentry_block_tickers(
     session: Session,
     *,
@@ -497,11 +504,33 @@ def _active_manual_reentry_block_tickers(
         .limit(1000)
         .all()
     )
-    return {
-        _norm_ticker(str(getattr(row, "ticker", "") or ""))
-        for row in rows
-        if _norm_ticker(str(getattr(row, "ticker", "") or ""))
-    }
+    now_ts = now()
+    active_tickers: set[str] = set()
+    for row in rows:
+        tk = _norm_ticker(str(getattr(row, "ticker", "") or ""))
+        if not tk:
+            continue
+        # expires_at 컬럼이 있으면 사용, 없으면 blocked_at 기준 7일 계산
+        expires_at = getattr(row, "expires_at", None)
+        if expires_at is not None:
+            if now_ts >= expires_at:
+                # 만료 → 자동 해제
+                row.is_active = False
+                row.released_at = now_ts
+                row.note = (row.note or "") + " | AUTO_EXPIRED"
+                logger.info("[autotrade] manual_block 자동 만료: ticker=%s, expires_at=%s", tk, expires_at)
+                continue
+        else:
+            blocked_at = getattr(row, "blocked_at", None)
+            if blocked_at is not None and (now_ts - blocked_at) >= timedelta(days=_MANUAL_BLOCK_EXPIRY_DAYS):
+                # blocked_at 기준 7일 경과 → 자동 해제
+                row.is_active = False
+                row.released_at = now_ts
+                row.note = (row.note or "") + " | AUTO_EXPIRED_7D"
+                logger.info("[autotrade] manual_block 7일 자동 만료: ticker=%s, blocked_at=%s", tk, blocked_at)
+                continue
+        active_tickers.add(tk)
+    return active_tickers
 
 
 def _upsert_manual_reentry_block(
@@ -511,7 +540,9 @@ def _upsert_manual_reentry_block(
     environment: str,
     ticker: str,
     trigger_reason: str,
+    expires_at: datetime | None = None,
 ) -> None:
+    """manual_block 생성/갱신. expires_at 미지정 시 기본 7일 만료."""
     tk = _norm_ticker(ticker)
     if not tk:
         return
@@ -533,24 +564,29 @@ def _upsert_manual_reentry_block(
         .limit(1)
     )
     ts = now()
+    computed_expires = expires_at or (ts + timedelta(days=_MANUAL_BLOCK_EXPIRY_DAYS))
+    block_kwargs: dict[str, Any] = {
+        "user_id": int(user_id),
+        "environment": env,
+        "ticker": tk,
+        "trigger_reason": trigger,
+        "is_active": True,
+        "blocked_at": ts,
+        "released_at": None,
+        "note": f"{trigger}_MANUAL_BLOCK (expires={computed_expires.isoformat()})",
+    }
+    # expires_at 컬럼이 모델에 존재하면 설정
+    if hasattr(AutoTradeReentryBlock, "expires_at"):
+        block_kwargs["expires_at"] = computed_expires
     if row is None:
-        session.add(
-            AutoTradeReentryBlock(
-                user_id=int(user_id),
-                environment=env,
-                ticker=tk,
-                trigger_reason=trigger,
-                is_active=True,
-                blocked_at=ts,
-                released_at=None,
-                note=f"{trigger}_MANUAL_BLOCK",
-            )
-        )
+        session.add(AutoTradeReentryBlock(**block_kwargs))
         return
     row.is_active = True
     row.blocked_at = ts
     row.released_at = None
-    row.note = f"{trigger}_MANUAL_BLOCK"
+    row.note = block_kwargs["note"]
+    if hasattr(row, "expires_at"):
+        row.expires_at = computed_expires
 
 
 def _recent_trigger_blocked_tickers(
@@ -897,7 +933,50 @@ class RunResult:
     metric: AutoTradeDailyMetric | None
 
 
+# --- 동시 실행 방지용 모듈 레벨 락 ---
+_RUN_AUTOTRADE_LOCK = Lock()
+
+
 def run_autotrade_once(
+    session: Session,
+    user_id: int,
+    cfg: AutoTradeSetting,
+    *,
+    dry_run: bool = False,
+    limit: int | None = None,
+    broker_credentials: KisCredentialBundle | None = None,
+    record_skipped_orders: bool = True,
+    candidate_profile: str = "full",
+    execution_mode: str = "all",
+    candidate_tickers: list[str] | set[str] | None = None,
+) -> RunResult:
+    # 동시성 락: 이미 실행 중이면 스킵
+    acquired = _RUN_AUTOTRADE_LOCK.acquire(blocking=False)
+    if not acquired:
+        logger.warning("[autotrade] run_autotrade_once 이미 실행 중 — 스킵합니다 (user_id=%s)", user_id)
+        return RunResult(
+            run_id="SKIPPED",
+            message="ALREADY_RUNNING",
+            candidates=[],
+            created_orders=[],
+            metric=None,
+        )
+    try:
+        return _run_autotrade_once_inner(
+            session, user_id, cfg,
+            dry_run=dry_run,
+            limit=limit,
+            broker_credentials=broker_credentials,
+            record_skipped_orders=record_skipped_orders,
+            candidate_profile=candidate_profile,
+            execution_mode=execution_mode,
+            candidate_tickers=candidate_tickers,
+        )
+    finally:
+        _RUN_AUTOTRADE_LOCK.release()
+
+
+def _run_autotrade_once_inner(
     session: Session,
     user_id: int,
     cfg: AutoTradeSetting,
@@ -919,6 +998,11 @@ def run_autotrade_once(
             return qpx, "QUOTE"
         avg = float(pos.avg_price or 0.0)
         if avg > 0.0:
+            # 실시간 가격 없이 평균 매입가로 대체 — 정확도 낮음
+            logger.warning(
+                "[autotrade] AVG_FALLBACK 사용: ticker=%s, avg_price=%.2f (실시간 가격 미확보)",
+                pos.ticker, avg,
+            )
             return avg, "AVG_FALLBACK"
         return 0.0, "UNAVAILABLE"
 
@@ -1200,6 +1284,25 @@ def run_autotrade_once(
             qpx = float(q.price or 0.0) if q is not None else 0.0
             current, price_source = _resolve_runtime_price(pos, qpx)
             if current <= 0.0 or pos.avg_price <= 0.0 or pos.qty <= 0:
+                continue
+            # AVG_FALLBACK 가격으로는 손절/익절 판단 불가 — 오판 방지를 위해 EXIT 스킵
+            if price_source == "AVG_FALLBACK":
+                _submit_order(
+                    side="SELL",
+                    source_tab=pos.source_tab,
+                    ticker=ticker,
+                    name=pos.name,
+                    qty=max(0, min(int(pos.qty), int(pos.sellable_qty))),
+                    price=current,
+                    reason="SKIPPED_PRICE_UNCERTAIN",
+                    metadata={
+                        "kind": "EXIT",
+                        "price_source": price_source,
+                        "avg_price": pos.avg_price,
+                        "holding_qty": int(pos.qty),
+                    },
+                    force_skip=True,
+                )
                 continue
             pnl_pct = ((current / pos.avg_price) - 1.0) * 100.0
             per_symbol = symbol_exit_rules.get(ticker)

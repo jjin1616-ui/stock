@@ -1,6 +1,22 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 import pandas as pd
+
+
+def _is_market_hours() -> bool:
+    """장중 여부 판단 (평일 09:00~15:30 KST)."""
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo  # type: ignore[no-redef]
+    now = datetime.now(ZoneInfo("Asia/Seoul"))
+    # 주말이면 장외
+    if now.weekday() >= 5:
+        return False
+    from datetime import time as _time
+    return _time(9, 0) <= now.time() <= _time(15, 30)
 
 
 def daily_mean_r(trade_log: pd.DataFrame) -> pd.DataFrame:
@@ -13,11 +29,28 @@ def daily_mean_r(trade_log: pd.DataFrame) -> pd.DataFrame:
     return daily.sort_values("date")
 
 
-def compute_gate(daily: pd.DataFrame, N: int, threshold: float = 0.0) -> pd.DataFrame:
+def compute_gate(
+    daily: pd.DataFrame,
+    N: int,
+    threshold: float = 0.0,
+    *,
+    intraday: bool | None = None,
+) -> pd.DataFrame:
+    """Gate 시그널 계산.
+
+    Args:
+        intraday: 장중 모드 강제 지정. None이면 현재 시각으로 자동 판단.
+            - 장중(True): 당일 데이터 포함 (shift=0) → gate 지연 최소화
+            - 장외(False): 기존 shift=1 유지 → 미래 참조 방지
+    """
     if daily.empty:
         return pd.DataFrame(columns=["date", "daily_mean_R", "gate_metric", "gate_on"])
     out = daily.sort_values("date").copy()
-    out["gate_metric"] = out["daily_mean_R"].rolling(N, min_periods=N).mean().shift(1)
+
+    is_intraday = intraday if intraday is not None else _is_market_hours()
+    shift_n = 0 if is_intraday else 1
+
+    out["gate_metric"] = out["daily_mean_R"].rolling(N, min_periods=N).mean().shift(shift_n)
     out["gate_on"] = out["gate_metric"].fillna(-1.0) >= threshold
     return out
 

@@ -206,6 +206,7 @@ from app.news_service import (
     should_run_ticker_backfill,
     upsert_articles,
 )
+from app.bootstrap_config import build_bootstrap_manifest
 from app.report_generator import generate_premarket_report
 from app.scheduler import start_scheduler
 from app.report_cache import premarket_cache_key
@@ -270,6 +271,156 @@ _AUTOTRADE_CANDIDATES_INITIAL_TTL_SECONDS = max(
 )
 _AUTOTRADE_RUN_GUARD_LOCK = Lock()
 _AUTOTRADE_RUN_GUARD_RUNNING: set[tuple[int, str]] = set()
+_STOCK_V2_APK_META_FILENAME = "latest.stockv2.json"
+_STOCK_V2_STABLE_APK_FILENAME = "stockv2-latest.apk"
+
+
+@app.get("/bootstrap/config")
+def get_bootstrap_config(
+    request: Request,
+    profile: str = Query("dev_local"),
+) -> dict[str, Any]:
+    base_url = str(request.base_url).rstrip("/")
+    return {
+        "profile": profile,
+        "manifest": build_bootstrap_manifest(profile=profile, base_url=base_url),
+    }
+
+
+@app.get("/update", response_class=HTMLResponse)
+def get_stock_v2_update_page(
+    request: Request,
+    profile: str = Query("dev_local"),
+) -> RedirectResponse:
+    return RedirectResponse(
+        url=f"/stockv2/apk/install?profile={html.escape(profile)}",
+        status_code=302,
+    )
+
+
+def _load_apk_meta(meta_filename: str) -> dict[str, Any]:
+    latest_path = os.path.join(settings.apk_dir, meta_filename)
+    if not os.path.isfile(latest_path):
+        raise HTTPException(status_code=404, detail=f"{meta_filename} 메타데이터가 없습니다.")
+    with open(latest_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _resolve_apk_filename(meta_filename: str, stable_filename: str) -> tuple[str, dict[str, Any]]:
+    meta = _load_apk_meta(meta_filename)
+    fname = str(meta.get("apk_filename") or "").strip()
+    if fname.endswith(".apk"):
+        fpath = os.path.join(settings.apk_dir, fname)
+        if os.path.isfile(fpath):
+            return fname, meta
+    stable_path = os.path.join(settings.apk_dir, stable_filename)
+    if os.path.isfile(stable_path):
+        return stable_filename, meta
+    raise HTTPException(status_code=404, detail="APK 파일이 없습니다.")
+
+
+def _apk_download_response(meta_filename: str, stable_filename: str) -> FileResponse | RedirectResponse:
+    fname, _ = _resolve_apk_filename(meta_filename=meta_filename, stable_filename=stable_filename)
+    fpath = os.path.join(settings.apk_dir, fname)
+    if os.path.isfile(fpath):
+        return FileResponse(
+            path=fpath,
+            media_type="application/vnd.android.package-archive",
+            filename=fname,
+            headers={"Cache-Control": "no-store"},
+        )
+    return RedirectResponse(url=f"/apk/{fname}", status_code=302)
+
+
+def _apk_install_page(
+    title: str,
+    meta_filename: str,
+    stable_filename: str,
+    download_path: str,
+) -> HTMLResponse:
+    fname, meta = _resolve_apk_filename(meta_filename=meta_filename, stable_filename=stable_filename)
+    safe_fname = html.escape(fname)
+    safe_label = html.escape(str(meta.get("build_label") or "").strip())
+    safe_version = html.escape(str(meta.get("version_name") or "").strip())
+    safe_notes = html.escape(str(meta.get("notes") or "").strip())
+    notes_html = f'<div class="muted" style="margin-top:8px;">{safe_notes}</div>' if safe_notes else ""
+    page = f"""<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(title)}</title>
+  <style>
+    body {{
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+      background: #f4f6f8;
+      color: #0f172a;
+    }}
+    .wrap {{
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 24px 16px 40px;
+    }}
+    .card {{
+      background: #fff;
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+      margin-top: 12px;
+    }}
+    h1 {{
+      font-size: 22px;
+      margin: 0 0 8px;
+    }}
+    .muted {{ color: #64748b; }}
+    .btn {{
+      display: inline-block;
+      text-decoration: none;
+      background: #1e3a8a;
+      color: #fff;
+      border-radius: 999px;
+      padding: 10px 16px;
+      font-weight: 700;
+      margin-right: 8px;
+      margin-top: 8px;
+    }}
+    .btn.sub {{
+      background: #e2e8f0;
+      color: #0f172a;
+    }}
+    code {{
+      background: #f1f5f9;
+      padding: 2px 6px;
+      border-radius: 6px;
+      word-break: break-all;
+    }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>{html.escape(title)}</h1>
+    <div class="muted">다운로드가 안 되면 설치 페이지에서 직접 다시 시도하세요.</div>
+    <div class="card">
+      <div><strong>현재 배포본</strong>: {safe_label if safe_label else "-"}</div>
+      <div class="muted" style="margin-top:6px;">버전: {safe_version if safe_version else "-"}</div>
+      <div class="muted" style="margin-top:6px;">파일명: {safe_fname}</div>
+      <a class="btn" href="{html.escape(download_path)}">다운로드</a>
+      <a class="btn sub" href="/apk/{safe_fname}">버전 파일 직접 열기</a>
+    </div>
+    <div class="card">
+      <strong>설치 실패 시 확인</strong>
+      <ul>
+        <li>브라우저에서 차단 안내 페이지가 보이면 <strong>Continue</strong>를 누른 뒤 다시 다운로드하세요.</li>
+        <li>파일 크기가 수 KB면 APK가 아니라 차단 HTML입니다. 다시 받아야 합니다.</li>
+        <li>다운로드 파일명은 <code>{safe_fname}</code> 이어야 합니다.</li>
+      </ul>
+      {notes_html}
+    </div>
+  </div>
+</body>
+</html>"""
+    return HTMLResponse(content=page, headers={"Cache-Control": "no-store"})
 
 
 def _autotrade_account_cache_key(user_id: int, environment: str) -> str:
@@ -511,6 +662,31 @@ def apk_install_page():
 </body>
 </html>"""
     return HTMLResponse(content=page, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/stockv2/apk/latest.json")
+def stock_v2_apk_latest() -> dict[str, Any]:
+    return _load_apk_meta(_STOCK_V2_APK_META_FILENAME)
+
+
+@app.api_route("/stockv2/apk/download", methods=["GET", "HEAD"])
+def stock_v2_apk_download():
+    return _apk_download_response(
+        meta_filename=_STOCK_V2_APK_META_FILENAME,
+        stable_filename=_STOCK_V2_STABLE_APK_FILENAME,
+    )
+
+
+@app.get("/stockv2/apk/install", response_class=HTMLResponse)
+def stock_v2_apk_install_page(
+    profile: str = Query("dev_local"),
+):
+    return _apk_install_page(
+        title=f"stock_v2 설치 안내 ({profile})",
+        meta_filename=_STOCK_V2_APK_META_FILENAME,
+        stable_filename=_STOCK_V2_STABLE_APK_FILENAME,
+        download_path="/stockv2/apk/download",
+    )
 
 @app.on_event("startup")
 def _startup():
@@ -5158,6 +5334,39 @@ def get_favorites(ctx=Depends(get_token_context)):
             )
         )
     return FavoritesResponse(items=items)
+
+
+@app.get("/alerts/history", response_model=list[AlertHistoryItem])
+def get_alert_history(
+    limit: int = Query(50, ge=1, le=100),
+    ctx=Depends(get_token_context),
+):
+    user = require_active_user(ctx)
+    _require_menu_allowed_for_user(user.id, _MENU_KEY_ALERTS)
+    with session_scope() as session:
+        rows = (
+            session.query(Alert)
+            .order_by(Alert.ts.desc(), Alert.id.desc())
+            .limit(limit)
+            .all()
+        )
+    items: list[AlertHistoryItem] = []
+    for row in rows:
+        payload_json = row.payload_json or "{}"
+        try:
+            payload = json.loads(payload_json)
+        except Exception:
+            payload = {}
+        items.append(
+            AlertHistoryItem(
+                ts=row.ts,
+                type=str(row.type or "TRIGGER"),
+                title=str(row.title or ""),
+                body=str(row.body or ""),
+                payload=payload if isinstance(payload, dict) else {},
+            )
+        )
+    return items
 
 
 @app.get("/stocks/search", response_model=StockSearchResponse)
