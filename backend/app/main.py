@@ -260,6 +260,7 @@ _CHART_DAILY_CACHE_LOCK = Lock()
 _CHART_DAILY_TTL_SECONDS = max(15, min(600, int(os.getenv("CHART_DAILY_TTL_SECONDS", "90"))))
 _CHART_BATCH_MAX_CODES = max(1, min(80, int(os.getenv("CHART_BATCH_MAX_CODES", "40"))))
 _AUTOTRADE_ACCOUNT_CACHE: dict[str, tuple[datetime, AutoTradeAccountSnapshotResponse]] = {}
+_AUTOTRADE_ACCOUNT_LAST_GOOD_CACHE: dict[str, tuple[datetime, AutoTradeAccountSnapshotResponse]] = {}
 _AUTOTRADE_ACCOUNT_CACHE_LOCK = Lock()
 _AUTOTRADE_ACCOUNT_TTL_SECONDS = max(3, min(60, int(os.getenv("AUTOTRADE_ACCOUNT_TTL_SECONDS", "15"))))
 _AUTOTRADE_CANDIDATES_CACHE: dict[str, tuple[datetime, AutoTradeCandidatesResponse]] = {}
@@ -461,8 +462,11 @@ def _set_cached_autotrade_account_snapshot(
     payload: AutoTradeAccountSnapshotResponse,
 ) -> None:
     cache_key = _autotrade_account_cache_key(user_id, environment)
+    now_ts = datetime.now(tz=SEOUL)
     with _AUTOTRADE_ACCOUNT_CACHE_LOCK:
-        _AUTOTRADE_ACCOUNT_CACHE[cache_key] = (datetime.now(tz=SEOUL), payload.model_copy(deep=True))
+        _AUTOTRADE_ACCOUNT_CACHE[cache_key] = (now_ts, payload.model_copy(deep=True))
+        if payload.source == "BROKER_LIVE":
+            _AUTOTRADE_ACCOUNT_LAST_GOOD_CACHE[cache_key] = (now_ts, payload.model_copy(deep=True))
 
 
 def _invalidate_autotrade_account_snapshot_cache(user_id: int) -> None:
@@ -1261,25 +1265,13 @@ def _resolve_autotrade_account_snapshot(
     broker_live_possible = env in {"demo", "prod"} and kis_enabled and broker_ready
 
     if broker_live_possible and (not bool(allow_live_fetch)):
-        return AutoTradeAccountSnapshotResponse(
-            environment=env,  # type: ignore[arg-type]
-            source="UNAVAILABLE",
-            broker_connected=False,
-            account_no_masked=account_no_masked,
-            cash_krw=None,
-            orderable_cash_krw=None,
-            stock_eval_krw=None,
-            total_asset_krw=None,
-            realized_pnl_krw=None,
-            unrealized_pnl_krw=None,
-            real_eval_pnl_krw=None,
-            real_eval_pnl_pct=None,
-            asset_change_krw=None,
-            asset_change_pct=None,
-            positions=[],
-            message="BROKER_SYNC_PENDING: 계좌 동기화 중입니다. 잠시 후 자동 갱신됩니다.",
-            updated_at=now(),
-        )
+        # fast mode: try last-good cache (ignores TTL) before falling through to live fetch
+        lg_key = _autotrade_account_cache_key(user_id, env)
+        with _AUTOTRADE_ACCOUNT_CACHE_LOCK:
+            lg = _AUTOTRADE_ACCOUNT_LAST_GOOD_CACHE.get(lg_key)
+        if lg is not None:
+            return lg[1].model_copy(deep=True)
+        # no last-good available — fall through to live fetch
 
     if broker_live_possible:
         user_creds, use_user_creds = resolve_user_kis_credentials(session, user_id)

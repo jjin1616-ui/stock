@@ -88,6 +88,7 @@ fun HomeScreen() {
     val newsClusters = vm.newsClustersState.value
     val briefing = vm.briefingState.value
     val marketTemperature = vm.marketTemperatureState.value
+    val snapshotDate = vm.snapshotDateState.value
     val tradeFeed = vm.tradeFeedState.value
     val pnlCalendar = vm.pnlCalendarState.value
 
@@ -141,7 +142,9 @@ fun HomeScreen() {
 
             // ── 3. 시장 지표 + 체제 뱃지 ──
             item {
-                HomeSectionCard(title = "시장 지표") {
+                val today = remember { java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul")).toString() }
+                val isFallback = snapshotDate != null && snapshotDate != today
+                HomeSectionCard(title = if (isFallback) "시장 지표 (전일 기준)" else "시장 지표") {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -202,10 +205,12 @@ fun HomeScreen() {
             }
 
             // ── 5. 투자자 수급 ──
-            if (investorFlow != null) {
-                item {
-                    HomeSectionCard(title = "투자자 수급 현황") {
+            item {
+                HomeSectionCard(title = "투자자 수급 현황") {
+                    if (investorFlow != null) {
                         InvestorFlowBars(flow = investorFlow)
+                    } else {
+                        Text("장 마감 후에는 수급 데이터가 제공되지 않습니다.", color = TextMuted, fontSize = 13.sp)
                     }
                 }
             }
@@ -292,8 +297,12 @@ fun HomeScreen() {
 @Composable
 private fun AccountSummaryCard(account: AutoTradeAccountSnapshotResponseDto?) {
     HomeSectionCard(title = "내 계좌") {
-        if (account == null || account.source == "UNAVAILABLE") {
-            Text("계좌 연결 후 확인 가능합니다.", color = TextMuted, fontSize = 13.sp)
+        if (account == null) {
+            Text("계좌 데이터 로딩 중...", color = TextMuted, fontSize = 13.sp)
+            return@HomeSectionCard
+        }
+        if (account.source == "UNAVAILABLE" && account.totalAssetKrw == null) {
+            Text("계좌 동기화 중입니다. 잠시 후 새로고침 해주세요.", color = TextMuted, fontSize = 13.sp)
             return@HomeSectionCard
         }
         val totalAsset = account.totalAssetKrw ?: 0.0

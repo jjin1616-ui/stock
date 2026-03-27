@@ -2238,6 +2238,8 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
     /** 시장 지수 (premarket report의 regime.market_snapshot에서 추출) */
     val marketSnapshotState = mutableStateOf<com.example.stock.data.api.MarketSnapshotDto?>(null)
     val regimeModeState = mutableStateOf<String?>(null)
+    /** 시장 지표 스냅샷 날짜 (전일 기준 라벨용) */
+    val snapshotDateState = mutableStateOf<String?>(null)
     /** 투자자 수급 현황 (개인/외국인/기관 3일 순매수 합계) */
     val investorFlowState = mutableStateOf<InvestorFlowSummary?>(null)
     /** 계좌 스냅샷 */
@@ -2285,6 +2287,8 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
                                 marketSnapshotState.value = snap
                             }
                         }
+                        // 스냅샷 날짜 (전일 기준 라벨용)
+                        snapshotDateState.value = wrapped.data.status?.snapshotDate
                         // 한줄 브리핑 + 시장 온도계
                         briefingState.value = wrapped.data.briefing
                         marketTemperatureState.value = wrapped.data.marketTemperature

@@ -112,6 +112,8 @@ class PremarketResponse(BaseModel):
     themes: list[ThemeItem]
     hard_rules: list[str]
     regime: Regime | None = None
+    briefing: str | None = None
+    market_temperature: dict | None = None
 
 
 class EodResponse(BaseModel):

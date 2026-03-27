@@ -89,6 +89,7 @@ data class ResponseStatusDto(
     val message: String? = null,
     @SerialName("cache_key") val cacheKey: String? = null,
     @SerialName("settings_hash") val settingsHash: String? = null,
+    @SerialName("snapshot_date") val snapshotDate: String? = null,
 )
 
 @Serializable
