@@ -2,6 +2,68 @@
 
 ---
 
+## 2026-03-27 KST
+### Home2 Tasks 7–9 — 거래량 급등 / 52주 신고가신저가 / 배당 일정 섹션 추가
+
+#### 변경 내역
+- **backend/app/volume_surge_service.py** 신규 생성: Naver Finance 거래량 상위 파싱, 3분 캐시
+- **backend/app/week52_service.py** 신규 생성: 52주 신고가/신저가 페이지 병렬 파싱, 30분 캐시
+- **backend/app/dividend_service.py** 신규 생성: 배당 일정 placeholder (pykrx 연동 예정), 1일 캐시
+- **backend/app/main.py**: 3개 엔드포인트 추가 (`/market/volume-surge`, `/market/52week-extremes`, `/market/dividends`), imports 추가
+- **StockApiService.kt**: `getVolumeSurge()`, `get52WeekExtremes()`, `getDividends()` 3개 메서드 추가
+- **StockRepository.kt**: 동일 3개 `suspendRunCatching` 래퍼 추가, DTO imports 추가
+- **ViewModels.kt (Home2ViewModel)**: `volumeSurgeState`, `weekExtremeState`, `dividendState` 활성화; `loadVolumeSurge()`, `load52WeekExtremes()`, `loadDividends()` 추가; `load()` coroutineScope에 연결
+- **Home2Screen.kt**: `VolumeSurgeCard`, `WeekExtremesCard`, `ExtremeRow`, `DividendCard` composable 추가; LazyColumn에 올바른 순서로 배치 (sector_heatmap → volume_surge → week_extremes → ... → favorites → dividends → pnl_calendar)
+
+#### 배포
+- APK: 미배포 (빌드 확인만)
+- 서버: 미배포
+
+#### 검증
+- `./gradlew assembleDebug` BUILD SUCCESSFUL (warnings only, no errors)
+
+---
+
+## 2026-03-27 KST
+### 계좌 동기화 버그 수정 + 투자자 수급 새로고침 버튼 (V3_747)
+
+#### 변경 내역
+- **ViewModels.kt `HomeViewModel.loadAccount()`**: `accountMutex.tryLock()` 스킵 → `withLock {}` 대기로 변경. 경쟁 시 계좌 로딩이 통째로 스킵되던 버그 수정
+- **ViewModels.kt `HomeViewModel.startPolling()`**: `accountState.value?.source == "UNAVAILABLE"` 조건 시 30초마다 계좌 자동 재시도 추가
+- **ViewModels.kt `HomeViewModel`**: `fun refreshInvestorFlow()` public 메서드 추가 (수급 수동 갱신용)
+- **ViewModels.kt import**: `kotlinx.coroutines.sync.withLock` 추가
+- **HomeScreen.kt `HomeSectionCard`**: `onRefresh: (() -> Unit)? = null` 파라미터 추가, 헤더 Row에 새로고침 아이콘 버튼 표시
+- **HomeScreen.kt 투자자 수급 섹션**: `onRefresh = { vm.refreshInvestorFlow() }` 연결
+
+#### 배포
+- APK: V3_747 빌드 완료, EC2 업로드 완료
+- 서버: 변경 없음 (앱 전용 수정)
+
+#### 검증
+- 빌드 성공 (17s, warning 2개는 기존 deprecated API, 기능 무관)
+
+---
+
+## 2026-03-27 KST
+### Task 6: 업종별 등락 히트맵 구현
+
+#### 변경 내역
+- **backend/app/sector_service.py** (신규): 네이버 금융 업종 페이지 스크래핑, SectorItem/SectorResponse 데이터클래스, TTL 기반 인메모리 캐시 (장중 5분 / 장외 1시간)
+- **backend/app/main.py**: `fetch_sectors` 임포트 추가, `GET /market/sectors` 엔드포인트 추가 (require_active_user 인증 적용, async)
+- **StockApiService.kt**: `getMarketSectors(): SectorResponseDto` Retrofit 메서드 추가
+- **StockRepository.kt**: `getMarketSectors()` suspendRunCatching 래퍼 추가, SectorResponseDto 임포트 추가
+- **ViewModels.kt (Home2ViewModel)**: `sectorHeatmapState` 주석 해제, `loadSectors()` 함수 추가, `load()` coroutineScope에 `async { loadSectors() }` 추가
+- **Home2Screen.kt**: `SectorHeatmapCard` 컴포저블 추가 (3열 그리드, 등락폭 기반 빨강/파랑 색상), LazyColumn의 MarketIndicesCard 직후 삽입
+
+#### 배포
+- APK: 미배포 (빌드 검증만)
+- 서버: 미배포
+
+#### 검증
+- `./gradlew assembleDebug` → BUILD SUCCESSFUL (경고만, 에러 없음)
+
+---
+
 ## 2026-03-27 23:30 KST
 
 ### Codex 검증 결과 기반 5개 이슈 수정

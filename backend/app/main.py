@@ -156,6 +156,10 @@ from app.schemas import (
     NewsClusterItem,
     NewsArticleItem,
 )
+from app.sector_service import fetch_sectors
+from app.volume_surge_service import fetch_volume_surge
+from app.week52_service import fetch_52week_extremes
+from app.dividend_service import fetch_dividends
 from app.push import send_to_devices_and_log, is_push_ready
 from app.auth import (
     TokenContext,
@@ -5038,6 +5042,55 @@ def get_market_indices(ctx=Depends(get_token_context)):
     with _MARKET_INDICES_CACHE_LOCK:
         _MARKET_INDICES_CACHE["indices"] = (now_ts, result)
     return result
+
+
+@app.get("/market/sectors")
+async def get_market_sectors(ctx=Depends(get_token_context)):
+    """업종별 등락 현황"""
+    require_active_user(ctx)
+    result = await fetch_sectors()
+    return {
+        "items": [{"name": s.name, "changePct": s.change_pct, "volume": s.volume} for s in result.items],
+        "asOf": result.as_of,
+        "source": result.source,
+    }
+
+
+@app.get("/market/volume-surge")
+async def get_volume_surge(ctx=Depends(get_token_context)):
+    """거래량 급등 종목"""
+    require_active_user(ctx)
+    result = await fetch_volume_surge()
+    return {
+        "items": [{"ticker": v.ticker, "name": v.name, "volumeRatio": v.volume_ratio,
+                    "price": v.price, "changePct": v.change_pct} for v in result.items],
+        "asOf": result.as_of,
+    }
+
+
+@app.get("/market/52week-extremes")
+async def get_52week_extremes(ctx=Depends(get_token_context)):
+    """52주 신고가/신저가"""
+    require_active_user(ctx)
+    result = await fetch_52week_extremes()
+    return {
+        "highs": [{"ticker": h.ticker, "name": h.name, "price": h.price, "prevExtreme": h.prev_extreme} for h in result.highs],
+        "lows": [{"ticker": l.ticker, "name": l.name, "price": l.price, "prevExtreme": l.prev_extreme} for l in result.lows],
+        "asOf": result.as_of,
+    }
+
+
+@app.get("/market/dividends")
+async def get_dividends(ctx=Depends(get_token_context)):
+    """배당/권리락 일정"""
+    require_active_user(ctx)
+    result = await fetch_dividends()
+    return {
+        "items": [{"ticker": d.ticker, "name": d.name, "exDate": d.ex_date,
+                    "dividendPerShare": d.dividend_per_share, "dividendYield": d.dividend_yield}
+                   for d in result.items],
+        "asOf": result.as_of,
+    }
 
 
 @app.get("/quotes/realtime", response_model=RealtimeQuotesResponse)

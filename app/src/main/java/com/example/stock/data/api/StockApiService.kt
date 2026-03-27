@@ -351,6 +351,18 @@ interface StockApiService {
     @GET("market/indices")
     suspend fun getMarketIndices(): MarketIndicesResponseDto
 
+    @GET("market/sectors")
+    suspend fun getMarketSectors(): SectorResponseDto
+
+    @GET("market/volume-surge")
+    suspend fun getVolumeSurge(): VolumeSurgeResponseDto
+
+    @GET("market/52week-extremes")
+    suspend fun get52WeekExtremes(): WeekExtremeResponseDto
+
+    @GET("market/dividends")
+    suspend fun getDividends(): DividendResponseDto
+
     // --- News (Hybrid) ---
 
     @GET("api/news/themes")

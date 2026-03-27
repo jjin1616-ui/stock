@@ -13,7 +13,11 @@ import com.example.stock.data.api.RealtimeQuoteItemDto
 import com.example.stock.data.api.ChartDailyDto
 import com.example.stock.data.api.ChartDailyBatchRequestDto
 import com.example.stock.data.api.StockInvestorDailyResponseDto
+import com.example.stock.data.api.DividendResponseDto
 import com.example.stock.data.api.MarketIndicesResponseDto
+import com.example.stock.data.api.SectorResponseDto
+import com.example.stock.data.api.VolumeSurgeResponseDto
+import com.example.stock.data.api.WeekExtremeResponseDto
 import com.example.stock.data.api.TradeFeedResponseDto
 import com.example.stock.data.api.PnlCalendarResponseDto
 import com.example.stock.data.api.StockTrendIntradayResponseDto
@@ -644,6 +648,26 @@ class StockRepository(
     suspend fun getMarketIndices(): Result<MarketIndicesResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getMarketIndices()
+    }
+
+    suspend fun getMarketSectors(): Result<SectorResponseDto> = suspendRunCatching {
+        val s = settingsStore.get()
+        NetworkModule.api(s.baseUrl).getMarketSectors()
+    }
+
+    suspend fun getVolumeSurge(): Result<VolumeSurgeResponseDto> = suspendRunCatching {
+        val s = settingsStore.get()
+        NetworkModule.api(s.baseUrl).getVolumeSurge()
+    }
+
+    suspend fun get52WeekExtremes(): Result<WeekExtremeResponseDto> = suspendRunCatching {
+        val s = settingsStore.get()
+        NetworkModule.api(s.baseUrl).get52WeekExtremes()
+    }
+
+    suspend fun getDividends(): Result<DividendResponseDto> = suspendRunCatching {
+        val s = settingsStore.get()
+        NetworkModule.api(s.baseUrl).getDividends()
     }
 
     suspend fun getAutoTradeFeed(limit: Int = 20): Result<TradeFeedResponseDto> = suspendRunCatching {

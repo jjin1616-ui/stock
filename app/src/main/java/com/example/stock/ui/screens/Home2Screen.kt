@@ -26,8 +26,12 @@ import com.example.stock.data.api.AutoTradePerformanceItemDto
 import com.example.stock.data.api.DaytradeTopItemDto
 import com.example.stock.data.api.LongtermItemDto
 import com.example.stock.data.api.NewsClusterListItemDto
+import com.example.stock.data.api.DividendItemDto
 import com.example.stock.data.api.TradeFeedItemDto
 import com.example.stock.data.api.TradeFeedSummaryDto
+import com.example.stock.data.api.VolumeSurgeItemDto
+import com.example.stock.data.api.WeekExtremeItemDto
+import com.example.stock.data.api.WeekExtremeResponseDto
 import com.example.stock.ui.common.AppTopBar
 import com.example.stock.ui.common.CommonReportItemCard
 import com.example.stock.ui.common.CommonReportItemUi
@@ -110,6 +114,21 @@ fun Home2Screen() {
                 }
             }
 
+            // 4. 업종별 등락 히트맵
+            if (vm.sectorHeatmapState.value.isNotEmpty()) {
+                item(key = "sector_heatmap") { SectorHeatmapCard(vm.sectorHeatmapState.value) }
+            }
+
+            // 5. 거래량 급등
+            if (vm.volumeSurgeState.value.isNotEmpty()) {
+                item(key = "volume_surge") { VolumeSurgeCard(vm.volumeSurgeState.value) }
+            }
+
+            // 5b. 52주 신고가/신저가
+            vm.weekExtremeState.value?.let { extremes ->
+                item(key = "week_extremes") { WeekExtremesCard(data = extremes) }
+            }
+
             // 6. 오늘의 추천
             vm.premarketState.value.data?.let { data ->
                 val daytradeTop = data.daytradeTop.orEmpty().take(3)
@@ -144,6 +163,9 @@ fun Home2Screen() {
                     )
                 }
             }
+
+            // 9. 배당/권리락 일정
+            item(key = "dividends") { DividendCard(vm.dividendState.value) }
 
             // 10. 수익 캘린더
             vm.pnlCalendarState.value?.let { calendar ->
@@ -581,6 +603,62 @@ private fun TradeFeedRow(item: TradeFeedItemDto) {
     }
 }
 
+// ── Sector Heatmap ─────────────────────────────────────────────────────────────
+
+@Composable
+private fun SectorHeatmapCard(sectors: List<com.example.stock.data.api.SectorItemDto>) {
+    HomeSectionCard(title = "업종별 등락") {
+        val chunked = sectors.take(15).chunked(3)
+        chunked.forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                row.forEach { sector ->
+                    val pct = sector.changePct ?: 0.0
+                    val bgColor = when {
+                        pct > 1.0 -> Color(0xFFD32F2F).copy(alpha = 0.8f)
+                        pct > 0.5 -> Color(0xFFD32F2F).copy(alpha = 0.5f)
+                        pct > 0.0 -> Color(0xFFD32F2F).copy(alpha = 0.25f)
+                        pct < -1.0 -> Color(0xFF1565C0).copy(alpha = 0.8f)
+                        pct < -0.5 -> Color(0xFF1565C0).copy(alpha = 0.5f)
+                        pct < 0.0 -> Color(0xFF1565C0).copy(alpha = 0.25f)
+                        else -> MaterialTheme.colorScheme.surfaceVariant
+                    }
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        shape = RoundedCornerShape(6.dp),
+                        color = bgColor,
+                    ) {
+                        Column(
+                            Modifier.padding(6.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                sector.name ?: "",
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = Color.White,
+                            )
+                            Text(
+                                formatPct(pct),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontFamily = FontFamily.Monospace,
+                                ),
+                                color = Color.White,
+                            )
+                        }
+                    }
+                }
+                // Fill remaining cells if row has < 3 items
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+            Spacer(Modifier.height(6.dp))
+        }
+    }
+}
+
 // ── Market Indices ─────────────────────────────────────────────────────────────
 
 @Composable
@@ -872,6 +950,158 @@ private fun NewsSection(clusters: List<NewsClusterListItemDto>) {
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Volume Surge ──────────────────────────────────────────────────────────────
+
+@Composable
+private fun VolumeSurgeCard(items: List<VolumeSurgeItemDto>) {
+    HomeSectionCard(title = "거래량 급등") {
+        items.take(5).forEach { item ->
+            val context = LocalContext.current
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        StockDetailActivity.open(
+                            context, item.ticker ?: "", item.name ?: "", "home2_volume", emptyList()
+                        )
+                    }
+                    .padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        item.name ?: "",
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        item.ticker ?: "",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        formatPrice(item.price),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                    )
+                    Text(
+                        formatPct(item.changePct),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            color = pnlColor(item.changePct),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ── 52-week Extremes ──────────────────────────────────────────────────────────
+
+@Composable
+private fun WeekExtremesCard(data: WeekExtremeResponseDto) {
+    val highs = data.highs ?: emptyList()
+    val lows = data.lows ?: emptyList()
+    if (highs.isEmpty() && lows.isEmpty()) return
+
+    HomeSectionCard(title = "52주 신고가/신저가") {
+        if (highs.isNotEmpty()) {
+            Text("신고가", style = MaterialTheme.typography.labelMedium, color = UpColor)
+            highs.take(5).forEach { item ->
+                ExtremeRow(item, isHigh = true)
+            }
+        }
+        if (lows.isNotEmpty()) {
+            if (highs.isNotEmpty()) Spacer(Modifier.height(8.dp))
+            Text("신저가", style = MaterialTheme.typography.labelMedium, color = DownColor)
+            lows.take(5).forEach { item ->
+                ExtremeRow(item, isHigh = false)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExtremeRow(item: WeekExtremeItemDto, isHigh: Boolean) {
+    val context = LocalContext.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable {
+                StockDetailActivity.open(
+                    context, item.ticker ?: "", item.name ?: "", "home2_52week", emptyList()
+                )
+            }
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            item.name ?: "",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            formatPrice(item.price),
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontFamily = FontFamily.Monospace,
+                color = if (isHigh) UpColor else DownColor,
+            ),
+        )
+    }
+}
+
+// ── Dividend ──────────────────────────────────────────────────────────────────
+
+@Composable
+private fun DividendCard(items: List<DividendItemDto>) {
+    HomeSectionCard(title = "배당/권리락 일정") {
+        if (items.isEmpty()) {
+            Text(
+                "예정된 배당 일정이 없습니다",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            items.take(5).forEach { item ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            item.name ?: "",
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            "권리락 ${item.exDate ?: "-"}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            "${formatPrice(item.dividendPerShare)}/주",
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        )
+                        Text(
+                            "배당률 ${formatPct(item.dividendYield)}",
+                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        )
                     }
                 }
             }

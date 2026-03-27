@@ -56,6 +56,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.todayIn
@@ -2384,8 +2385,7 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
     }
 
     private suspend fun loadAccount() {
-        if (!accountMutex.tryLock()) return // 이미 실행 중이면 무시
-        try {
+        accountMutex.withLock {
             repository.getAutoTradeBootstrap(fast = true).onSuccess { boot ->
                 sectionErrorState.remove("account")
                 boot.account?.let { accountState.value = it }
@@ -2399,8 +2399,6 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
             repository.getAutoTradeReservations(status = "PENDING").onSuccess { res ->
                 reservationCountState.value = res.total ?: 0
             }
-        } finally {
-            accountMutex.unlock()
         }
     }
 
@@ -2474,6 +2472,10 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
                     loadMarketIndices()
                     loadInvestorFlow()
                 }
+                // UNAVAILABLE 상태면 계좌 재시도
+                if (accountState.value?.source == "UNAVAILABLE") {
+                    loadAccount()
+                }
                 delay(30_000L)
             }
         }
@@ -2485,6 +2487,10 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
         val all = (premarketTickers + favTickers).distinct().take(40)
         if (all.isEmpty()) return
         repository.getRealtimeQuotes(all).onSuccess { map -> quoteState.putAll(map) }
+    }
+
+    fun refreshInvestorFlow() {
+        viewModelScope.launch { loadInvestorFlow() }
     }
 
     fun stopPolling() { pollJob?.cancel() }
@@ -2519,14 +2525,10 @@ class Home2ViewModel(private val repository: StockRepository) : ViewModel() {
     val snapshotDateState = mutableStateOf<String?>(null)
 
     // 신규 데이터 (Home2 전용)
-    // TODO: uncomment when SectorItemDto server integration is complete
-    // val sectorHeatmapState = mutableStateOf<List<com.example.stock.data.api.SectorItemDto>>(emptyList())
-    // TODO: uncomment when VolumeSurgeItemDto server integration is complete
-    // val volumeSurgeState = mutableStateOf<List<com.example.stock.data.api.VolumeSurgeItemDto>>(emptyList())
-    // TODO: uncomment when WeekExtremeResponseDto server integration is complete
-    // val weekExtremeState = mutableStateOf<com.example.stock.data.api.WeekExtremeResponseDto?>(null)
-    // TODO: uncomment when DividendItemDto server integration is complete
-    // val dividendState = mutableStateOf<List<com.example.stock.data.api.DividendItemDto>>(emptyList())
+    val sectorHeatmapState = mutableStateOf<List<com.example.stock.data.api.SectorItemDto>>(emptyList())
+    val volumeSurgeState = mutableStateOf<List<com.example.stock.data.api.VolumeSurgeItemDto>>(emptyList())
+    val weekExtremeState = mutableStateOf<com.example.stock.data.api.WeekExtremeResponseDto?>(null)
+    val dividendState = mutableStateOf<List<com.example.stock.data.api.DividendItemDto>>(emptyList())
 
     val sectionErrorState = mutableStateMapOf<String, String>()
 
@@ -2543,6 +2545,10 @@ class Home2ViewModel(private val repository: StockRepository) : ViewModel() {
                 async { loadFavorites() }
                 async { loadPnlCalendar() }
                 async { loadTradeFeed() }
+                async { loadSectors() }
+                async { loadVolumeSurge() }
+                async { load52WeekExtremes() }
+                async { loadDividends() }
             }
             viewModelScope.launch { loadInvestorFlow() }
             startPolling()
@@ -2605,6 +2611,38 @@ class Home2ViewModel(private val repository: StockRepository) : ViewModel() {
         }.onFailure {
             if (liveIndicesState.value == null) sectionErrorState["indices"] = "시장 지수를 불러올 수 없습니다"
         }
+    }
+
+    private suspend fun loadSectors() {
+        try {
+            repository.getMarketSectors().onSuccess { resp ->
+                sectorHeatmapState.value = resp.items ?: emptyList()
+            }
+        } catch (_: Exception) {}
+    }
+
+    private suspend fun loadVolumeSurge() {
+        try {
+            repository.getVolumeSurge().onSuccess { resp ->
+                volumeSurgeState.value = resp.items ?: emptyList()
+            }
+        } catch (_: Exception) {}
+    }
+
+    private suspend fun load52WeekExtremes() {
+        try {
+            repository.get52WeekExtremes().onSuccess { resp ->
+                weekExtremeState.value = resp
+            }
+        } catch (_: Exception) {}
+    }
+
+    private suspend fun loadDividends() {
+        try {
+            repository.getDividends().onSuccess { resp ->
+                dividendState.value = resp.items ?: emptyList()
+            }
+        } catch (_: Exception) {}
     }
 
     private suspend fun loadNewsClusters() {
