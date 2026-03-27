@@ -797,10 +797,10 @@ private fun DivergingBarRows(entries: List<Pair<String, Long>>, isValue: Boolean
                 Text(
                     text = displayText,
                     color = barColor,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.End,
-                    modifier = Modifier.width(68.dp).padding(start = 6.dp),
+                    modifier = Modifier.width(72.dp).padding(start = 6.dp),
                 )
             }
         }
