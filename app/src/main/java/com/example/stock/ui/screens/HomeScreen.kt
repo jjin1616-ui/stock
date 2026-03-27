@@ -64,6 +64,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlin.math.abs
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -716,7 +719,12 @@ private fun InvestorFlowCard(flow: InvestorFlowSummary) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // 1단: 오늘 (dailyFlow 최근일)
         if (todayFlow != null) {
-            FlowSubHeader("오늘")
+            val todayKst = LocalDate.now(ZoneId.of("Asia/Seoul"))
+            val flowDate = runCatching { LocalDate.parse(todayFlow.date) }.getOrNull()
+            val todayLabel = if (flowDate == todayKst) "오늘 (실시간)" else {
+                flowDate?.format(DateTimeFormatter.ofPattern("MM/dd")) ?: todayFlow.date.takeLast(5).replace("-", "/")
+            }
+            FlowSubHeader(todayLabel)
             DivergingBarRows(
                 entries = listOf(
                     "외국인" to todayFlow.foreign,
