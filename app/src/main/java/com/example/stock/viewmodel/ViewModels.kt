@@ -2489,11 +2489,81 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
     }
 }
 
+class Home2ViewModel(private val repository: StockRepository) : ViewModel() {
+    // 기존 홈 데이터 state
+    val briefingState = mutableStateOf<String?>(null)
+    val accountState = mutableStateOf<com.example.stock.data.api.AutoTradeAccountSnapshotResponseDto?>(null)
+    val performanceState = mutableStateOf<com.example.stock.data.api.AutoTradePerformanceItemDto?>(null)
+    val autoTradeEnabledState = mutableStateOf<Boolean?>(null)
+    val autoTradeEnvState = mutableStateOf<String?>(null)
+    val tradeFeedState = mutableStateOf<List<com.example.stock.data.api.TradeFeedItemDto>>(emptyList())
+    // TODO: uncomment when TradeFeedSummaryDto server integration is complete
+    // val tradeFeedSummaryState = mutableStateOf<com.example.stock.data.api.TradeFeedSummaryDto?>(null)
+    val liveIndicesState = mutableStateOf<com.example.stock.data.api.MarketIndicesResponseDto?>(null)
+    val regimeModeState = mutableStateOf<String?>(null)
+    val marketTemperatureState = mutableStateOf<com.example.stock.data.api.MarketTemperatureDto?>(null)
+    val premarketState = mutableStateOf(UiState<PremarketReportDto>(loading = true))
+    val investorFlowState = mutableStateOf<InvestorFlowSummary?>(null)
+    val favoritesState = mutableStateOf<List<com.example.stock.data.api.FavoriteItemDto>>(emptyList())
+    val quoteState = mutableStateMapOf<String, RealtimeQuoteItemDto>()
+    val miniChartState = mutableStateMapOf<String, List<ChartPointDto>>()
+    val pnlCalendarState = mutableStateOf<com.example.stock.data.api.PnlCalendarResponseDto?>(null)
+    val newsClustersState = mutableStateOf<List<com.example.stock.data.api.NewsClusterListItemDto>>(emptyList())
+    val reservationCountState = mutableStateOf(0)
+    val snapshotDateState = mutableStateOf<String?>(null)
+
+    // 신규 데이터 (Home2 전용)
+    // TODO: uncomment when SectorItemDto server integration is complete
+    // val sectorHeatmapState = mutableStateOf<List<com.example.stock.data.api.SectorItemDto>>(emptyList())
+    // TODO: uncomment when VolumeSurgeItemDto server integration is complete
+    // val volumeSurgeState = mutableStateOf<List<com.example.stock.data.api.VolumeSurgeItemDto>>(emptyList())
+    // TODO: uncomment when WeekExtremeResponseDto server integration is complete
+    // val weekExtremeState = mutableStateOf<com.example.stock.data.api.WeekExtremeResponseDto?>(null)
+    // TODO: uncomment when DividendItemDto server integration is complete
+    // val dividendState = mutableStateOf<List<com.example.stock.data.api.DividendItemDto>>(emptyList())
+
+    val sectionErrorState = mutableStateMapOf<String, String>()
+
+    private var pollingJob: Job? = null
+
+    fun load() {
+        viewModelScope.launch {
+            // Phase 1에서 구현
+        }
+    }
+
+    fun startPolling() {
+        pollingJob?.cancel()
+        pollingJob = viewModelScope.launch {
+            delay(30_000)
+            while (isActive) {
+                fetchQuotes()
+                delay(30_000)
+            }
+        }
+    }
+
+    fun stopPolling() {
+        pollingJob?.cancel()
+        pollingJob = null
+    }
+
+    private suspend fun fetchQuotes() {
+        // Phase 1에서 구현
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        stopPolling()
+    }
+}
+
 class AppViewModelFactory(private val repository: StockRepository) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         return when {
             modelClass.isAssignableFrom(HomeViewModel::class.java) -> HomeViewModel(repository) as T
+            modelClass.isAssignableFrom(Home2ViewModel::class.java) -> Home2ViewModel(repository) as T
             modelClass.isAssignableFrom(PremarketViewModel::class.java) -> PremarketViewModel(repository) as T
             modelClass.isAssignableFrom(EodViewModel::class.java) -> EodViewModel(repository) as T
             modelClass.isAssignableFrom(AlertsViewModel::class.java) -> AlertsViewModel(repository) as T
