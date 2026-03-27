@@ -2,6 +2,62 @@
 
 ---
 
+## 2026-03-27 18:00 KST
+### refactor: Home2Screen 내 계좌 카드를 HomeScreen AccountSummaryCard 디자인으로 통일
+
+#### 변경 내역
+- `HomeSectionCard` 래퍼: `Surface+border` → `Card(18.dp radius, 1.dp elevation)`으로 변경 (HomeScreen과 동일한 카드 스타일)
+- `AccountPositionsCard` 상단부 레이아웃 전면 교체:
+  - 총 평가자산: `headlineLarge+Monospace` → `22.sp Bold` (홈과 동일)
+  - 평가손익: 금액+뱃지 분리 레이아웃 → `"${pnlSign}%,.0f원 (${pnlSign}%.1f%%)"` 단일 텍스트 (홈과 동일)
+  - 현금: 평가손익과 같은 Row에 우측 배치 (홈과 동일)
+  - "보유 N종목" 텍스트: `H2TextTertiary, 11.sp` (홈과 동일)
+- 홈2 전용 추가 영역(예수금/매수가능 박스, 보유종목 접기/펼치기)은 Divider 아래에 그대로 유지
+- 기능(데이터 로딩, 클릭 이벤트) 변경 없음
+
+#### 배포
+- APK: 미배포
+- 서버: 미배포
+
+#### 검증
+- `./gradlew assembleDebug` BUILD SUCCESSFUL (warning만, 에러 없음)
+
+---
+
+## 2026-03-27 17:00 KST
+### fix: 업종 히트맵/거래량급등 changePct 0% 버그 수정 — V3_764
+
+#### 원인
+서버 API가 camelCase JSON (`changePct`, `asOf`, `volumeRatio`, `prevExtreme`, `exDate`, `dividendPerShare`, `dividendYield`)을 반환하는데,
+Android DTO에 `@SerialName("change_pct")` 등 snake_case SerialName이 지정되어 있어
+Kotlin Serialization이 값을 파싱하지 못하고 기본값 0.0으로 fallback.
+
+#### 변경 내역
+- `app/src/main/java/com/example/stock/data/api/ApiModels.kt`
+  - `SectorItemDto`: `@SerialName("change_pct")` 제거 → `val changePct` (camelCase 직접 매핑)
+  - `SectorResponseDto`: `@SerialName("as_of")` 제거 → `val asOf`
+  - `VolumeSurgeItemDto`: `@SerialName("change_pct")`, `@SerialName("volume_ratio")` 제거
+  - `VolumeSurgeResponseDto`: `@SerialName("as_of")` 제거
+  - `WeekExtremeItemDto`: `@SerialName("prev_extreme")` 제거
+  - `WeekExtremeResponseDto`: `@SerialName("as_of")` 제거
+  - `DividendItemDto`: `@SerialName("ex_date")`, `@SerialName("dividend_per_share")`, `@SerialName("dividend_yield")` 제거
+  - `DividendResponseDto`: `@SerialName("as_of")` 제거
+
+#### 배포
+- APK: V3_764 배포 완료
+- 서버: 변경 없음 (서버 파싱 로직은 정상이었음)
+
+#### 검증
+- EC2에서 `fetch_sectors()` 직접 실행 → changePct 7.72%, 7.38%, 5.95% 등 정상 반환 확인
+- EC2에서 `fetch_volume_surge()` 직접 실행 → price/changePct 정상 반환 확인
+- 서버 API JSON 필드명 (`changePct`, `asOf` 등) camelCase 확인 → DTO SerialName 불일치가 원인
+
+#### 회고
+- 서버가 camelCase JSON을 반환하는데 앱 DTO에 snake_case SerialName이 있으면 값이 0(기본값)으로 파싱됨
+- 새 API 연동 시 서버 실제 JSON 키명과 앱 DTO SerialName 1:1 대조 필수
+
+---
+
 ## 2026-03-27 14:30 KST
 ### Home2 전체 배포 — V3_759 (안 C 대규모 확장)
 

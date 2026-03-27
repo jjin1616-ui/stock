@@ -307,21 +307,18 @@ private fun HomeSectionCard(
     error: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(1.dp, RoundedCornerShape(H2CardRadius))
-            .border(1.dp, H2CardBorder, RoundedCornerShape(H2CardRadius)),
-        shape = RoundedCornerShape(H2CardRadius),
-        color = H2CardBg,
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = H2CardBg),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
             Text(
                 title,
-                style = MaterialTheme.typography.titleMedium.copy(
-                    color = H2TextPrimary,
-                    fontWeight = FontWeight.Bold,
-                ),
+                color = H2TextPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(10.dp))
             if (error != null) {
@@ -404,58 +401,61 @@ private fun AccountPositionsCard(account: AutoTradeAccountSnapshotResponseDto) {
     val hasPositions = positions.isNotEmpty()
 
     HomeSectionCard(title = "내 계좌") {
-        // Hero: total asset (large)
-        Text("총 평가자산", style = MaterialTheme.typography.labelSmall, color = H2TextTertiary)
+        // ── 홈과 동일한 상단 레이아웃 ─────────────────────────────────────────
+        val totalAsset = account.totalAssetKrw ?: 0.0
+        val unrealizedPnl = account.unrealizedPnlKrw ?: 0.0
+        val pnlPct = account.realEvalPnlPct ?: 0.0
+        val cash = account.cashKrw ?: 0.0
+        val pnlColor = h2PnlColor(unrealizedPnl)
+        val pnlSign = if (unrealizedPnl >= 0) "+" else ""
+
+        // 총 평가자산
+        Text("총 평가자산", color = H2TextTertiary, fontSize = 12.sp)
         Spacer(Modifier.height(4.dp))
         Text(
-            formatKrw(account.totalAssetKrw),
-            style = MaterialTheme.typography.headlineLarge.copy(
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                color = H2TextPrimary,
-            ),
+            text = "%,.0f원".format(totalAsset),
+            color = H2TextPrimary,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
         )
         Spacer(Modifier.height(8.dp))
-        // PnL row: amount + percent with color
-        val pnl = account.realEvalPnlKrw ?: 0.0
-        val pnlPct = account.realEvalPnlPct ?: 0.0
-        val pnlColor = h2PnlColor(pnl)
-        val pnlSign = if (pnl >= 0) "+" else ""
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "평가손익",
-                style = MaterialTheme.typography.labelSmall,
-                color = H2TextTertiary,
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "${pnlSign}${formatKrw(pnl)}",
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    color = pnlColor,
-                ),
-            )
-            Spacer(Modifier.width(6.dp))
-            Box(
-                modifier = Modifier
-                    .background(
-                        if (pnl >= 0) H2UpBg else H2DownBg,
-                        RoundedCornerShape(4.dp),
-                    )
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-            ) {
+
+        // 평가손익 + 현금 (좌우 배치)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column {
+                Text("평가손익", color = H2TextTertiary, fontSize = 11.sp)
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    formatPct(pnlPct),
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = pnlColor,
-                    ),
+                    text = "${pnlSign}%,.0f원 (${pnlSign}%.1f%%)".format(unrealizedPnl, pnlPct),
+                    color = pnlColor,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text("현금", color = H2TextTertiary, fontSize = 11.sp)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "%,.0f원".format(cash),
+                    color = H2TextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
         }
+
+        // 보유 종목 수
+        val posCount = positions.size
+        if (posCount > 0) {
+            Spacer(Modifier.height(6.dp))
+            Text("보유 ${posCount}종목", color = H2TextTertiary, fontSize = 11.sp)
+        }
+
+        // ── 홈2 전용 추가 영역 ─────────────────────────────────────────────────
         Spacer(Modifier.height(12.dp))
+        HorizontalDivider(color = H2Divider, thickness = 1.dp)
+        Spacer(Modifier.height(12.dp))
+
         // Cash boxes
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             CashBox(label = "예수금", value = formatKrw(account.cashKrw), modifier = Modifier.weight(1f))
