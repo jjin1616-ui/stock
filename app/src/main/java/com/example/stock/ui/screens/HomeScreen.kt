@@ -788,10 +788,10 @@ private fun DivergingBarRows(entries: List<Pair<String, Long>>, isValue: Boolean
                     }
                     // 중앙 기준선
                     drawLine(
-                        color = Color(0xFFCCCCCC),
+                        color = Color(0xFF999999),
                         start = Offset(cx, 2f),
                         end = Offset(cx, h - 2f),
-                        strokeWidth = 1.5f,
+                        strokeWidth = 2f,
                     )
                 }
                 Text(
