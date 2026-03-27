@@ -834,7 +834,7 @@ private fun FlowSparklines3Col(dailyFlow: List<DailyFlow>, isValue: Boolean) {
                     Text(
                         text = displayText,
                         color = if (isPositive) UpColor else DownColor,
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                     )
                 }
