@@ -106,6 +106,7 @@ fun HomeScreen() {
     val liveIndices = vm.liveIndicesState.value
     val tradeFeed = vm.tradeFeedState.value
     val pnlCalendar = vm.pnlCalendarState.value
+    val sectionErrors = vm.sectionErrorState
 
     LaunchedEffect(Unit) { vm.load() }
     DisposableEffect(Unit) { onDispose { vm.stopPolling() } }
@@ -134,7 +135,7 @@ fun HomeScreen() {
 
             // ── 1. 내 계좌 요약 ──
             item {
-                AccountSummaryCard(account = account)
+                AccountSummaryCard(account = account, error = sectionErrors["account"])
             }
 
             // ── 2. 자동매매 상태 ──
@@ -225,10 +226,13 @@ fun HomeScreen() {
             // ── 5. 투자자 수급 ──
             item {
                 HomeSectionCard(title = "투자자 수급 현황") {
+                    val supplyErr = sectionErrors["supply"]
                     if (investorFlow != null) {
                         InvestorFlowCard(flow = investorFlow)
+                    } else if (supplyErr != null) {
+                        Text(supplyErr, color = Color(0xFFE95A68), fontSize = 13.sp)
                     } else {
-                        Text("장 마감 후에는 수급 데이터가 제공되지 않습니다.", color = TextMuted, fontSize = 13.sp)
+                        Text("수급 데이터 로딩 중...", color = TextMuted, fontSize = 13.sp)
                     }
                 }
             }
@@ -313,10 +317,10 @@ fun HomeScreen() {
 // 1. 계좌 요약 카드
 // ─────────────────────────────────────────────────
 @Composable
-private fun AccountSummaryCard(account: AutoTradeAccountSnapshotResponseDto?) {
+private fun AccountSummaryCard(account: AutoTradeAccountSnapshotResponseDto?, error: String? = null) {
     HomeSectionCard(title = "내 계좌") {
         if (account == null) {
-            Text("계좌 데이터 로딩 중...", color = TextMuted, fontSize = 13.sp)
+            Text(error ?: "계좌 데이터 로딩 중...", color = if (error != null) Color(0xFFE95A68) else TextMuted, fontSize = 13.sp)
             return@HomeSectionCard
         }
         if (account.source == "UNAVAILABLE" && account.totalAssetKrw == null) {

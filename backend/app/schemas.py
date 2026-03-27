@@ -338,6 +338,13 @@ class SupplyItem(BaseModel):
     flow_score: float = 0.0
 
 
+class DailyFlowItem(BaseModel):
+    date: str  # YYYY-MM-DD
+    foreign: int = 0
+    institution: int = 0
+    individual: int = 0
+
+
 class SupplyResponse(BaseModel):
     as_of: datetime
     bas_dd: str
@@ -348,6 +355,7 @@ class SupplyResponse(BaseModel):
     candidate_quotes: int = 0
     notes: list[str] = Field(default_factory=list)
     items: list[SupplyItem] = Field(default_factory=list)
+    daily_flow: list[DailyFlowItem] = Field(default_factory=list)
 
 
 class UsInsiderItem(BaseModel):

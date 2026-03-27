@@ -13,6 +13,7 @@ import com.example.stock.data.api.RealtimeQuoteItemDto
 import com.example.stock.data.api.ChartDailyDto
 import com.example.stock.data.api.ChartDailyBatchRequestDto
 import com.example.stock.data.api.StockInvestorDailyResponseDto
+import com.example.stock.data.api.MarketIndicesResponseDto
 import com.example.stock.data.api.TradeFeedResponseDto
 import com.example.stock.data.api.PnlCalendarResponseDto
 import com.example.stock.data.api.StockTrendIntradayResponseDto
@@ -72,6 +73,11 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlin.coroutines.cancellation.CancellationException
+
+/** runCatching 대체: CancellationException은 rethrow하여 코루틴 취소 전파 보장 */
+internal inline fun <T> suspendRunCatching(block: () -> T): Result<T> =
+    try { Result.success(block()) } catch (e: CancellationException) { throw e } catch (e: Throwable) { Result.failure(e) }
 
 enum class UiSource { LIVE, CACHE, FALLBACK }
 
@@ -113,7 +119,7 @@ class StockRepository(
     }
 
     suspend fun getPremarket(date: String, force: Boolean = false): Result<DataWithSource<PremarketReportDto>> {
-        return runCatching {
+        return suspendRunCatching {
             val s = settingsStore.get()
             val data = withTimeout(10000L) {
                 NetworkModule.api(s.baseUrl).getPremarketReport(
@@ -170,15 +176,15 @@ class StockRepository(
         }
     }
 
-    suspend fun getEod(date: String): Result<EodReportDto> = runCatching { NetworkModule.api(settingsStore.get().baseUrl).getEodReport(date) }
-    suspend fun getEvalMonthly(end: String): Result<EvalMonthlyDto> = runCatching { NetworkModule.api(settingsStore.get().baseUrl).getEvalMonthly(end) }
-    suspend fun fetchAlerts(limit: Int = 50): Result<List<AlertHistoryItemDto>> = runCatching { NetworkModule.api(settingsStore.get().baseUrl).getAlertHistory(limit) }
+    suspend fun getEod(date: String): Result<EodReportDto> = suspendRunCatching { NetworkModule.api(settingsStore.get().baseUrl).getEodReport(date) }
+    suspend fun getEvalMonthly(end: String): Result<EvalMonthlyDto> = suspendRunCatching { NetworkModule.api(settingsStore.get().baseUrl).getEvalMonthly(end) }
+    suspend fun fetchAlerts(limit: Int = 50): Result<List<AlertHistoryItemDto>> = suspendRunCatching { NetworkModule.api(settingsStore.get().baseUrl).getAlertHistory(limit) }
     suspend fun getRealtimeQuotes(
         tickers: List<String>,
         mode: String = "full",
     ): Result<Map<String, RealtimeQuoteItemDto>> {
         if (tickers.isEmpty()) return Result.success(emptyMap())
-        return runCatching {
+        return suspendRunCatching {
             val normalizedMode = if (mode.equals("light", ignoreCase = true)) "light" else "full"
             val dto = NetworkModule.api(settingsStore.get().baseUrl).getRealtimeQuotes(
                 tickersCsv = tickers.joinToString(","),
@@ -187,7 +193,7 @@ class StockRepository(
             dto.items?.associateBy { it.ticker.orEmpty() }.orEmpty()
         }
     }
-    suspend fun getPapersSummary(): Result<PapersSummaryDto> = runCatching { NetworkModule.api(settingsStore.get().baseUrl).getPapersSummary() }
+    suspend fun getPapersSummary(): Result<PapersSummaryDto> = suspendRunCatching { NetworkModule.api(settingsStore.get().baseUrl).getPapersSummary() }
     suspend fun getChartDaily(code: String, days: Int = 180): Result<ChartDailyDto> {
         val key = chartKey(code, days)
         val now = System.currentTimeMillis()
@@ -220,7 +226,7 @@ class StockRepository(
                     }
                 }
             }
-            runCatching {
+            suspendRunCatching {
                 chartSemaphore.acquire()
                 try {
                     val dto = withContext(Dispatchers.IO) {
@@ -253,7 +259,7 @@ class StockRepository(
         }
         if (missing.isEmpty()) return Result.success(out)
 
-        return runCatching {
+        return suspendRunCatching {
             val s = settingsStore.get()
             val dto = NetworkModule.api(s.baseUrl).getChartDailyBatch(
                 ChartDailyBatchRequestDto(
@@ -286,7 +292,7 @@ class StockRepository(
     suspend fun getStockInvestorDaily(
         ticker: String,
         days: Int = 60,
-    ): Result<StockInvestorDailyResponseDto> = runCatching {
+    ): Result<StockInvestorDailyResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getStockInvestorDaily(
             ticker = ticker,
@@ -297,7 +303,7 @@ class StockRepository(
     suspend fun getStockIntradayTrend(
         ticker: String,
         limit: Int = 80,
-    ): Result<StockTrendIntradayResponseDto> = runCatching {
+    ): Result<StockTrendIntradayResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getStockIntradayTrend(
             ticker = ticker,
@@ -306,11 +312,11 @@ class StockRepository(
     }
 
     suspend fun getPaperRecommendations(date: String): Result<DataWithSource<PremarketReportDto>> = getPremarket(date)
-    suspend fun getStrategySettings(): Result<StrategySettingsResponseDto> = runCatching {
+    suspend fun getStrategySettings(): Result<StrategySettingsResponseDto> = suspendRunCatching {
         NetworkModule.slowApi(settingsStore.get().baseUrl).getStrategySettings()
     }
-    suspend fun updateStrategySettings(payload: StrategySettingsDto): Result<StrategySettingsResponseDto> = runCatching { NetworkModule.api(settingsStore.get().baseUrl).updateStrategySettings(payload) }
-    suspend fun getLatestApkInfo(): Result<LatestApkInfoDto> = runCatching {
+    suspend fun updateStrategySettings(payload: StrategySettingsDto): Result<StrategySettingsResponseDto> = suspendRunCatching { NetworkModule.api(settingsStore.get().baseUrl).updateStrategySettings(payload) }
+    suspend fun getLatestApkInfo(): Result<LatestApkInfoDto> = suspendRunCatching {
         // Update metadata should be fetched from the baked-in distribution host first.
         // Users may set baseUrl to USB/LAN/localhost which would otherwise break update checks.
         val defaultBase = NetworkModule.defaultBaseUrl()
@@ -320,7 +326,7 @@ class StockRepository(
             NetworkModule.api(settingsStore.get().baseUrl).getLatestApkInfo()
         }
     }
-    suspend fun getMarketMovers(mode: String, period: String = "1d", count: Int = 100): Result<MoversResponseDto> = runCatching {
+    suspend fun getMarketMovers(mode: String, period: String = "1d", count: Int = 100): Result<MoversResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getMarketMovers(mode = mode, period = period, count = count)
     }
@@ -331,7 +337,7 @@ class StockRepository(
         universeTopValue: Int = 500,
         universeTopChg: Int = 200,
         fields: String? = null,
-    ): Result<Movers2ResponseDto> = runCatching {
+    ): Result<Movers2ResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getMarketMovers2(
             session = session,
@@ -348,7 +354,7 @@ class StockRepository(
         universeTopValue: Int = 450,
         universeTopChg: Int = 220,
         includeContrarian: Boolean = true,
-    ): Result<SupplyResponseDto> = runCatching {
+    ): Result<SupplyResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         // 수급 계산은 상류 수급/시세 조합으로 지연이 발생할 수 있어 확장 타임아웃 클라이언트를 사용한다.
         NetworkModule.slowApi(s.baseUrl).getMarketSupply(
@@ -366,7 +372,7 @@ class StockRepository(
         maxCandidates: Int = 120,
         transactionCodes: String = "ALL",
         force: Boolean = false,
-    ): Result<UsInsiderResponseDto> = runCatching {
+    ): Result<UsInsiderResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         // SEC Form4 scan can exceed the default 20s read timeout depending on candidate count.
         NetworkModule.slowApi(s.baseUrl).getUsInsiders(
@@ -378,7 +384,7 @@ class StockRepository(
             force = force,
         )
     }
-    suspend fun getFavorites(): Result<List<FavoriteItemDto>> = runCatching {
+    suspend fun getFavorites(): Result<List<FavoriteItemDto>> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getFavorites().items.orEmpty()
     }
@@ -388,7 +394,7 @@ class StockRepository(
         baselinePrice: Double,
         sourceTab: String? = null,
         favoritedAt: String? = null,
-    ): Result<FavoriteItemDto> = runCatching {
+    ): Result<FavoriteItemDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).upsertFavorite(
             FavoriteUpsertRequestDto(
@@ -400,54 +406,54 @@ class StockRepository(
             )
         )
     }
-    suspend fun deleteFavorite(ticker: String): Result<Unit> = runCatching {
+    suspend fun deleteFavorite(ticker: String): Result<Unit> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).deleteFavorite(ticker)
         Unit
     }
 
-    suspend fun getAutoTradeSettings(): Result<AutoTradeSettingsResponseDto> = runCatching {
+    suspend fun getAutoTradeSettings(): Result<AutoTradeSettingsResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.slowApi(s.baseUrl).getAutoTradeSettings()
     }
 
-    suspend fun updateAutoTradeSettings(payload: AutoTradeSettingsDto): Result<AutoTradeSettingsResponseDto> = runCatching {
+    suspend fun updateAutoTradeSettings(payload: AutoTradeSettingsDto): Result<AutoTradeSettingsResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).updateAutoTradeSettings(payload)
     }
 
-    suspend fun getAutoTradeSymbolRules(): Result<AutoTradeSymbolRulesResponseDto> = runCatching {
+    suspend fun getAutoTradeSymbolRules(): Result<AutoTradeSymbolRulesResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getAutoTradeSymbolRules()
     }
 
-    suspend fun upsertAutoTradeSymbolRule(payload: AutoTradeSymbolRuleUpsertDto): Result<AutoTradeSymbolRuleItemDto> = runCatching {
+    suspend fun upsertAutoTradeSymbolRule(payload: AutoTradeSymbolRuleUpsertDto): Result<AutoTradeSymbolRuleItemDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).upsertAutoTradeSymbolRule(payload)
     }
 
-    suspend fun deleteAutoTradeSymbolRule(ticker: String): Result<Unit> = runCatching {
+    suspend fun deleteAutoTradeSymbolRule(ticker: String): Result<Unit> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).deleteAutoTradeSymbolRule(ticker)
         Unit
     }
 
-    suspend fun getAutoTradeBrokerCredential(): Result<AutoTradeBrokerCredentialDto> = runCatching {
+    suspend fun getAutoTradeBrokerCredential(): Result<AutoTradeBrokerCredentialDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.slowApi(s.baseUrl).getAutoTradeBrokerCredential()
     }
 
-    suspend fun updateAutoTradeBrokerCredential(payload: AutoTradeBrokerCredentialUpdateDto): Result<AutoTradeBrokerCredentialDto> = runCatching {
+    suspend fun updateAutoTradeBrokerCredential(payload: AutoTradeBrokerCredentialUpdateDto): Result<AutoTradeBrokerCredentialDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).updateAutoTradeBrokerCredential(payload)
     }
 
-    suspend fun getAutoTradeBootstrap(fast: Boolean = true): Result<AutoTradeBootstrapResponseDto> = runCatching {
+    suspend fun getAutoTradeBootstrap(fast: Boolean = true): Result<AutoTradeBootstrapResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.slowApi(s.baseUrl).getAutoTradeBootstrap(fast = fast)
     }
 
-    suspend fun getAutoTradeCandidates(limit: Int = 300, profile: String = "full"): Result<AutoTradeCandidatesResponseDto> = runCatching {
+    suspend fun getAutoTradeCandidates(limit: Int = 300, profile: String = "full"): Result<AutoTradeCandidatesResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.slowApi(s.baseUrl).getAutoTradeCandidates(limit = limit, profile = profile)
     }
@@ -456,7 +462,7 @@ class StockRepository(
         dryRun: Boolean = false,
         limit: Int? = null,
         reserveIfClosed: Boolean = false,
-    ): Result<AutoTradeRunResponseDto> = runCatching {
+    ): Result<AutoTradeRunResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.slowApi(s.baseUrl).runAutoTrade(
             AutoTradeRunRequestDto(
@@ -470,7 +476,7 @@ class StockRepository(
     suspend fun getAutoTradeReservations(
         status: String? = null,
         limit: Int = 30,
-    ): Result<AutoTradeReservationsResponseDto> = runCatching {
+    ): Result<AutoTradeReservationsResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getAutoTradeReservations(
             status = status,
@@ -480,14 +486,14 @@ class StockRepository(
 
     suspend fun confirmAutoTradeReservation(
         reservationId: Int,
-    ): Result<AutoTradeReservationActionResponseDto> = runCatching {
+    ): Result<AutoTradeReservationActionResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).confirmAutoTradeReservation(reservationId = reservationId)
     }
 
     suspend fun cancelAutoTradeReservation(
         reservationId: Int,
-    ): Result<AutoTradeReservationActionResponseDto> = runCatching {
+    ): Result<AutoTradeReservationActionResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).cancelAutoTradeReservation(reservationId = reservationId)
     }
@@ -495,7 +501,7 @@ class StockRepository(
     suspend fun cancelAutoTradeReservationItem(
         reservationId: Int,
         ticker: String,
-    ): Result<AutoTradeReservationActionResponseDto> = runCatching {
+    ): Result<AutoTradeReservationActionResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).cancelAutoTradeReservationItem(
             reservationId = reservationId,
@@ -506,7 +512,7 @@ class StockRepository(
     suspend fun cancelAutoTradePendingReservations(
         environment: String? = null,
         maxCount: Int = 30,
-    ): Result<AutoTradeReservationPendingCancelResponseDto> = runCatching {
+    ): Result<AutoTradeReservationPendingCancelResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.slowApi(s.baseUrl).cancelAutoTradePendingReservations(
             payload = AutoTradeReservationPendingCancelRequestDto(
@@ -519,7 +525,7 @@ class StockRepository(
     suspend fun cancelAutoTradeOrder(
         orderId: Int,
         environment: String? = null,
-    ): Result<AutoTradeOrderCancelResponseDto> = runCatching {
+    ): Result<AutoTradeOrderCancelResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).cancelAutoTradeOrder(
             orderId = orderId,
@@ -530,7 +536,7 @@ class StockRepository(
     suspend fun cancelAutoTradePendingOrders(
         environment: String? = null,
         maxCount: Int = 20,
-    ): Result<AutoTradePendingCancelResponseDto> = runCatching {
+    ): Result<AutoTradePendingCancelResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.slowApi(s.baseUrl).cancelAutoTradePendingOrders(
             payload = AutoTradePendingCancelRequestDto(
@@ -544,7 +550,7 @@ class StockRepository(
         environment: String? = null,
         triggerReason: String? = null,
         limit: Int = 200,
-    ): Result<AutoTradeReentryBlocksResponseDto> = runCatching {
+    ): Result<AutoTradeReentryBlocksResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getAutoTradeReentryBlocks(
             environment = environment,
@@ -558,7 +564,7 @@ class StockRepository(
         ticker: String? = null,
         triggerReason: String? = null,
         releaseAll: Boolean = false,
-    ): Result<AutoTradeReentryReleaseResponseDto> = runCatching {
+    ): Result<AutoTradeReentryReleaseResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).releaseAutoTradeReentryBlocks(
             payload = AutoTradeReentryReleaseRequestDto(
@@ -579,7 +585,7 @@ class StockRepository(
         requestPrice: Double? = null,
         marketOrder: Boolean? = null,
         dryRun: Boolean = false,
-    ): Result<AutoTradeRunResponseDto> = runCatching {
+    ): Result<AutoTradeRunResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.slowApi(s.baseUrl).runAutoTradeManualBuy(
             AutoTradeManualBuyRequestDto(
@@ -603,7 +609,7 @@ class StockRepository(
         requestPrice: Double? = null,
         marketOrder: Boolean? = null,
         dryRun: Boolean = false,
-    ): Result<AutoTradeRunResponseDto> = runCatching {
+    ): Result<AutoTradeRunResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.slowApi(s.baseUrl).runAutoTradeManualSell(
             AutoTradeManualSellRequestDto(
@@ -624,7 +630,7 @@ class StockRepository(
         environment: String? = null,
         status: String? = null,
         ticker: String? = null,
-    ): Result<AutoTradeOrdersResponseDto> = runCatching {
+    ): Result<AutoTradeOrdersResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getAutoTradeOrders(
             page = page,
@@ -635,12 +641,17 @@ class StockRepository(
         )
     }
 
-    suspend fun getAutoTradeFeed(limit: Int = 20): Result<TradeFeedResponseDto> = runCatching {
+    suspend fun getMarketIndices(): Result<MarketIndicesResponseDto> = suspendRunCatching {
+        val s = settingsStore.get()
+        NetworkModule.api(s.baseUrl).getMarketIndices()
+    }
+
+    suspend fun getAutoTradeFeed(limit: Int = 20): Result<TradeFeedResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getAutoTradeFeed(limit = limit)
     }
 
-    suspend fun getAutoTradePnlCalendar(year: Int, month: Int): Result<PnlCalendarResponseDto> = runCatching {
+    suspend fun getAutoTradePnlCalendar(year: Int, month: Int): Result<PnlCalendarResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getAutoTradePnlCalendar(year = year, month = month)
     }
@@ -648,17 +659,17 @@ class StockRepository(
     suspend fun getAutoTradePerformance(
         days: Int = 30,
         environment: String? = null,
-    ): Result<AutoTradePerformanceResponseDto> = runCatching {
+    ): Result<AutoTradePerformanceResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getAutoTradePerformance(days = days, environment = environment)
     }
 
-    suspend fun getAutoTradeAccountSnapshot(environment: String? = null): Result<AutoTradeAccountSnapshotResponseDto> = runCatching {
+    suspend fun getAutoTradeAccountSnapshot(environment: String? = null): Result<AutoTradeAccountSnapshotResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.slowApi(s.baseUrl).getAutoTradeAccountSnapshot(environment = environment)
     }
 
-    suspend fun searchStocks(query: String, limit: Int = 50): Result<StockSearchResponseDto> = runCatching {
+    suspend fun searchStocks(query: String, limit: Int = 50): Result<StockSearchResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).searchStocks(query = query, limit = limit)
     }
@@ -669,7 +680,7 @@ class StockRepository(
         source: String = "all",
         eventType: String? = null,
         hideRisk: Boolean = false,
-    ): Result<NewsThemesResponseDto> = runCatching {
+    ): Result<NewsThemesResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getNewsThemes(
             window = window,
@@ -689,7 +700,7 @@ class StockRepository(
         hideRisk: Boolean = false,
         sort: String = "hot",
         limit: Int = 200,
-    ): Result<NewsClustersResponseDto> = runCatching {
+    ): Result<NewsClustersResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getNewsClusters(
             window = window,
@@ -714,7 +725,7 @@ class StockRepository(
         query: String? = null,
         sort: String = "latest",
         limit: Int = 200,
-    ): Result<NewsArticlesResponseDto> = runCatching {
+    ): Result<NewsArticlesResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getNewsArticles(
             window = window,
@@ -738,7 +749,7 @@ class StockRepository(
         eventType: String? = null,
         hideRisk: Boolean = false,
         sort: String = "hot",
-    ): Result<NewsStocksResponseDto> = runCatching {
+    ): Result<NewsStocksResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getNewsStocks(
             window = window,
@@ -751,13 +762,13 @@ class StockRepository(
         )
     }
 
-    suspend fun getNewsCluster(clusterId: Int): Result<NewsClusterResponseDto> = runCatching {
+    suspend fun getNewsCluster(clusterId: Int): Result<NewsClusterResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getNewsCluster(clusterId)
     }
 
     suspend fun cacheIncomingAlert(type: String, title: String, body: String, payload: Map<String, String>) {
-        runCatching {
+        suspendRunCatching {
             val entity = AlertCacheEntity(
                 ts = System.currentTimeMillis().toString(),
                 type = type,
@@ -774,7 +785,7 @@ class StockRepository(
             .orEmpty()
         if (deviceId.isBlank()) return
         val token = fcmToken?.trim()?.takeIf { it.isNotBlank() }
-        runCatching {
+        suspendRunCatching {
             NetworkModule.api(settingsStore.get().baseUrl).registerDevice(
                 DeviceRegisterRequest(
                     deviceId = deviceId,

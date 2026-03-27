@@ -879,9 +879,9 @@ class PapersViewModel(private val repository: StockRepository) : ViewModel() {
         quoteJob = viewModelScope.launch {
             while (isActive) {
                 repository.getRealtimeQuotes(tickers)
-                    .onSuccess {
-                        quoteState.clear()
-                        quoteState.putAll(it)
+                    .onSuccess { newMap ->
+                        quoteState.keys.minus(newMap.keys).forEach { quoteState.remove(it) }
+                        quoteState.putAll(newMap)
                     }
                 delay(refreshMs)
             }
@@ -900,9 +900,9 @@ class PapersViewModel(private val repository: StockRepository) : ViewModel() {
         if (tickers.isEmpty()) return
         viewModelScope.launch {
             repository.getRealtimeQuotes(tickers)
-                .onSuccess {
-                    quoteState.clear()
-                    quoteState.putAll(it)
+                .onSuccess { newMap ->
+                    quoteState.keys.minus(newMap.keys).forEach { quoteState.remove(it) }
+                    quoteState.putAll(newMap)
                 }
         }
     }
@@ -2051,7 +2051,7 @@ class HoldingsViewModel(private val repository: StockRepository) : ViewModel() {
         ordersState.value = ordersState.value.copy(loading = true, error = null)
         viewModelScope.launch {
             retryNetworkResult {
-                runCatching {
+                com.example.stock.data.repository.suspendRunCatching {
                     val pageSize = 300
                     val first = repository.getAutoTradeOrders(page = 1, size = pageSize).getOrThrow()
                     val merged = first.items.orEmpty().toMutableList()
@@ -2223,11 +2223,19 @@ data class StrategySettingsUiState(
  * [individual], [foreign], [institution]은 각각 개인/외국인/기관의
  * 3일 순매수 합계(백만원 단위).
  */
+data class DailyFlow(
+    val date: String,
+    val foreign: Long,
+    val institution: Long,
+    val individual: Long,
+)
+
 data class InvestorFlowSummary(
     val individual: Long = 0L,
     val foreign: Long = 0L,
     val institution: Long = 0L,
     val unit: String = "value",
+    val dailyFlow: List<DailyFlow> = emptyList(),
 )
 
 class HomeViewModel(private val repository: StockRepository) : ViewModel() {
@@ -2257,12 +2265,17 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
     val briefingState = mutableStateOf<String?>(null)
     /** 시장 온도계 */
     val marketTemperatureState = mutableStateOf<com.example.stock.data.api.MarketTemperatureDto?>(null)
+    /** 실시간 시장 지수 */
+    val liveIndicesState = mutableStateOf<com.example.stock.data.api.MarketIndicesResponseDto?>(null)
     /** 매매 피드 */
     val tradeFeedState = mutableStateOf<List<com.example.stock.data.api.TradeFeedItemDto>>(emptyList())
     /** 수익 캘린더 */
     val pnlCalendarState = mutableStateOf<com.example.stock.data.api.PnlCalendarResponseDto?>(null)
+    /** 섹션별 에러 메시지 (키: supply, account, performance, news, indices, feed, calendar) */
+    val sectionErrorState = mutableStateMapOf<String, String>()
     private var pollJob: Job? = null
     private var loadJob: Job? = null
+    private val accountMutex = kotlinx.coroutines.sync.Mutex()
 
     fun load() {
         loadJob?.cancel()
@@ -2303,20 +2316,22 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
                         favoritesState.value = items
                     }
                 }
-                val flowJob = async { loadInvestorFlow() }
                 val acctJob = async { loadAccount() }
                 val perfJob = async { loadPerformance() }
                 val newsJob = async { loadNewsClusters() }
                 val feedJob = async { loadTradeFeed() }
                 val calendarJob = async { loadPnlCalendar() }
+                val indicesJob = async { loadMarketIndices() }
                 preJob.await()
                 favJob.await()
-                flowJob.await()
                 acctJob.await()
                 perfJob.await()
                 newsJob.await()
                 feedJob.await()
                 calendarJob.await()
+                indicesJob.await()
+                // 수급은 최대 12s 소요 — await 제거하여 다른 카드 로드를 막지 않음
+                viewModelScope.launch { loadInvestorFlow() }
             }
             startPolling()
         }
@@ -2341,7 +2356,8 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
      * 전체 개인/외국인/기관 3일 순매수 합계를 계산한다.
      */
     private suspend fun loadInvestorFlow() {
-        repository.getMarketSupply(count = 60).onSuccess { resp ->
+        repository.getMarketSupply(count = 15).onSuccess { resp ->
+            sectionErrorState.remove("supply")
             val items = resp.items.orEmpty()
             var individual = 0L
             var foreign = 0L
@@ -2351,43 +2367,87 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
                 foreign += (item.foreign3d ?: 0).toLong()
                 institution += (item.institution3d ?: 0).toLong()
             }
+            val dailyFlow = resp.dailyFlow.orEmpty().mapNotNull { d ->
+                val dt = d.date ?: return@mapNotNull null
+                DailyFlow(date = dt, foreign = d.foreign, institution = d.institution, individual = d.individual)
+            }
             investorFlowState.value = InvestorFlowSummary(
                 individual = individual,
                 foreign = foreign,
                 institution = institution,
                 unit = resp.unit ?: "value",
+                dailyFlow = dailyFlow,
             )
+        }.onFailure {
+            if (investorFlowState.value == null) sectionErrorState["supply"] = "수급 데이터를 불러올 수 없습니다"
         }
     }
 
     private suspend fun loadAccount() {
-        repository.getAutoTradeBootstrap(fast = true).onSuccess { boot ->
-            boot.account?.let { accountState.value = it }
-            boot.settings?.settings?.let { s ->
-                autoTradeEnabledState.value = s.enabled
-                autoTradeEnvState.value = s.environment
+        if (!accountMutex.tryLock()) return // 이미 실행 중이면 무시
+        try {
+            repository.getAutoTradeBootstrap(fast = true).onSuccess { boot ->
+                sectionErrorState.remove("account")
+                boot.account?.let { accountState.value = it }
+                boot.settings?.settings?.let { s ->
+                    autoTradeEnabledState.value = s.enabled
+                    autoTradeEnvState.value = s.environment
+                }
+            }.onFailure {
+                if (accountState.value == null) sectionErrorState["account"] = "계좌 정보를 불러올 수 없습니다"
             }
-        }
-        repository.getAutoTradeReservations(status = "PENDING").onSuccess { res ->
-            reservationCountState.value = res.total ?: 0
+            repository.getAutoTradeReservations(status = "PENDING").onSuccess { res ->
+                reservationCountState.value = res.total ?: 0
+            }
+        } finally {
+            accountMutex.unlock()
         }
     }
 
     private suspend fun loadPerformance() {
         repository.getAutoTradePerformance(days = 30).onSuccess { perf ->
+            sectionErrorState.remove("performance")
             performanceState.value = perf.summary
+        }.onFailure {
+            if (performanceState.value == null) sectionErrorState["performance"] = "성과 데이터를 불러올 수 없습니다"
         }
     }
 
     private suspend fun loadNewsClusters() {
         repository.getNewsClusters(limit = 3).onSuccess { resp ->
+            sectionErrorState.remove("news")
             newsClustersState.value = resp.clusters.orEmpty().take(3)
+        }.onFailure {
+            if (newsClustersState.value.isEmpty()) sectionErrorState["news"] = "뉴스를 불러올 수 없습니다"
+        }
+    }
+
+    private suspend fun loadMarketIndices() {
+        repository.getMarketIndices().onSuccess { resp ->
+            sectionErrorState.remove("indices")
+            liveIndicesState.value = resp
+            // 실시간 지수로 marketSnapshotState 덮어쓰기
+            val kospi = resp.kospi?.value
+            val kosdaq = resp.kosdaq?.value
+            val usdkrw = resp.usdkrw?.value
+            if (kospi != null || kosdaq != null || usdkrw != null) {
+                marketSnapshotState.value = com.example.stock.data.api.MarketSnapshotDto(
+                    kospiClose = kospi,
+                    kosdaqClose = kosdaq,
+                    usdkrwClose = usdkrw,
+                )
+            }
+        }.onFailure {
+            if (marketSnapshotState.value == null) sectionErrorState["indices"] = "시장 지수를 불러올 수 없습니다"
         }
     }
 
     private suspend fun loadTradeFeed() {
         repository.getAutoTradeFeed(limit = 20).onSuccess { resp: com.example.stock.data.api.TradeFeedResponseDto ->
+            sectionErrorState.remove("feed")
             tradeFeedState.value = resp.items.orEmpty()
+        }.onFailure {
+            if (tradeFeedState.value.isEmpty()) sectionErrorState["feed"] = "매매 피드를 불러올 수 없습니다"
         }
     }
 
@@ -2395,7 +2455,10 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
         val seoul = kotlinx.datetime.TimeZone.of("Asia/Seoul")
         val today = Clock.System.todayIn(seoul)
         repository.getAutoTradePnlCalendar(year = today.year, month = today.monthNumber).onSuccess { resp: com.example.stock.data.api.PnlCalendarResponseDto ->
+            sectionErrorState.remove("calendar")
             pnlCalendarState.value = resp
+        }.onFailure {
+            if (pnlCalendarState.value == null) sectionErrorState["calendar"] = "캘린더를 불러올 수 없습니다"
         }
     }
 

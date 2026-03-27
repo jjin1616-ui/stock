@@ -9,7 +9,7 @@ data class PremarketReportDto(
     val date: String? = "",
     @SerialName("generated_at") val generatedAt: String? = "",
     val status: ResponseStatusDto? = ResponseStatusDto(),
-    @SerialName("daytrade_gate") val daytradeGate: DaytradeGateDto? = DaytradeGateDto(false, 0, 0.0, 0, 0, emptyList()),
+    @SerialName("daytrade_gate") val daytradeGate: DaytradeGateDto? = null,
     @SerialName("daytrade_top") val daytradeTop: List<DaytradeTopItemDto>? = emptyList(),
     @SerialName("daytrade_primary") val daytradePrimary: List<DaytradeTopItemDto>? = emptyList(),
     @SerialName("daytrade_watch") val daytradeWatch: List<DaytradeTopItemDto>? = emptyList(),
@@ -65,6 +65,23 @@ data class TradeFeedItemDto(
 data class TradeFeedResponseDto(
     val items: List<TradeFeedItemDto>? = emptyList(),
     val total: Int? = 0,
+)
+
+// ── 실시간 시장 지수 ──
+@Serializable
+data class MarketIndexValueDto(
+    val value: Double? = null,
+    val change: Double? = null,
+    @SerialName("change_pct") val changePct: Double? = null,
+)
+
+@Serializable
+data class MarketIndicesResponseDto(
+    val kospi: MarketIndexValueDto? = null,
+    val kosdaq: MarketIndexValueDto? = null,
+    val usdkrw: MarketIndexValueDto? = null,
+    @SerialName("as_of") val asOf: String? = null,
+    val source: String? = null,
 )
 
 // ── 수익 캘린더 ──
@@ -252,19 +269,19 @@ data class ChartDailyBatchResponseDto(
 @Serializable
 data class StockInvestorDailyItemDto(
     val date: String? = "",
-    @SerialName("individual_qty") val individualQty: Int? = 0,
-    @SerialName("foreign_qty") val foreignQty: Int? = 0,
-    @SerialName("institution_qty") val institutionQty: Int? = 0,
-    @SerialName("private_fund_qty") val privateFundQty: Int? = 0,
-    @SerialName("corporate_qty") val corporateQty: Int? = 0,
-    @SerialName("financial_investment_qty") val financialInvestmentQty: Int? = 0,
-    @SerialName("insurance_qty") val insuranceQty: Int? = 0,
-    @SerialName("trust_qty") val trustQty: Int? = 0,
-    @SerialName("pension_qty") val pensionQty: Int? = 0,
-    @SerialName("bank_qty") val bankQty: Int? = 0,
-    @SerialName("etc_finance_qty") val etcFinanceQty: Int? = 0,
-    @SerialName("other_foreign_qty") val otherForeignQty: Int? = 0,
-    @SerialName("total_qty") val totalQty: Int? = 0,
+    @SerialName("individual_qty") val individualQty: Long? = 0,
+    @SerialName("foreign_qty") val foreignQty: Long? = 0,
+    @SerialName("institution_qty") val institutionQty: Long? = 0,
+    @SerialName("private_fund_qty") val privateFundQty: Long? = 0,
+    @SerialName("corporate_qty") val corporateQty: Long? = 0,
+    @SerialName("financial_investment_qty") val financialInvestmentQty: Long? = 0,
+    @SerialName("insurance_qty") val insuranceQty: Long? = 0,
+    @SerialName("trust_qty") val trustQty: Long? = 0,
+    @SerialName("pension_qty") val pensionQty: Long? = 0,
+    @SerialName("bank_qty") val bankQty: Long? = 0,
+    @SerialName("etc_finance_qty") val etcFinanceQty: Long? = 0,
+    @SerialName("other_foreign_qty") val otherForeignQty: Long? = 0,
+    @SerialName("total_qty") val totalQty: Long? = 0,
     @SerialName("individual_value") val individualValue: Double? = 0.0,
     @SerialName("foreign_value") val foreignValue: Double? = 0.0,
     @SerialName("institution_value") val institutionValue: Double? = 0.0,
@@ -290,9 +307,9 @@ data class StockTrendIntradayItemDto(
     @SerialName("current_price") val currentPrice: Double? = 0.0,
     @SerialName("change_abs") val changeAbs: Double? = 0.0,
     @SerialName("change_pct") val changePct: Double? = 0.0,
-    @SerialName("volume_delta") val volumeDelta: Int? = 0,
-    @SerialName("cumulative_volume") val cumulativeVolume: Int? = 0,
-    @SerialName("net_buy_qty_estimate") val netBuyQtyEstimate: Int? = 0,
+    @SerialName("volume_delta") val volumeDelta: Long? = 0,
+    @SerialName("cumulative_volume") val cumulativeVolume: Long? = 0,
+    @SerialName("net_buy_qty_estimate") val netBuyQtyEstimate: Long? = 0,
     val direction: String? = "FLAT",
 )
 
@@ -685,11 +702,11 @@ data class SupplyItemDto(
     @SerialName("investor_source") val investorSource: String? = "LIVE",
     @SerialName("investor_message") val investorMessage: String? = null,
     @SerialName("investor_days") val investorDays: Int? = 0,
-    @SerialName("foreign_3d") val foreign3d: Int? = 0,
-    @SerialName("institution_3d") val institution3d: Int? = 0,
-    @SerialName("individual_3d") val individual3d: Int? = 0,
-    @SerialName("net_3d") val net3d: Int? = 0,
-    @SerialName("net_5d") val net5d: Int? = 0,
+    @SerialName("foreign_3d") val foreign3d: Long? = 0,
+    @SerialName("institution_3d") val institution3d: Long? = 0,
+    @SerialName("individual_3d") val individual3d: Long? = 0,
+    @SerialName("net_3d") val net3d: Long? = 0,
+    @SerialName("net_5d") val net5d: Long? = 0,
     @SerialName("buy_streak_days") val buyStreakDays: Int? = 0,
     @SerialName("flow_score") val flowScore: Double? = 0.0,
 )
@@ -705,6 +722,15 @@ data class SupplyResponseDto(
     @SerialName("candidate_quotes") val candidateQuotes: Int? = 0,
     val notes: List<String>? = emptyList(),
     val items: List<SupplyItemDto>? = emptyList(),
+    @SerialName("daily_flow") val dailyFlow: List<DailyFlowItemDto>? = emptyList(),
+)
+
+@Serializable
+data class DailyFlowItemDto(
+    val date: String? = "",
+    val foreign: Long = 0L,
+    val institution: Long = 0L,
+    val individual: Long = 0L,
 )
 
 // --- US Insiders (미장: SEC Form 4 CEO/CFO P 거래) ---

@@ -348,6 +348,9 @@ interface StockApiService {
         @Query("month") month: Int,
     ): PnlCalendarResponseDto
 
+    @GET("market/indices")
+    suspend fun getMarketIndices(): MarketIndicesResponseDto
+
     // --- News (Hybrid) ---
 
     @GET("api/news/themes")

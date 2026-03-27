@@ -498,12 +498,12 @@ fun SupplyScreen() {
     }
 }
 
-private fun fmtSignedQty(v: Int): String {
+private fun fmtSignedQty(v: Long): String {
     val absValue = abs(v.toDouble())
     val body = when {
-        absValue >= 100_000_000 -> "${"%.2f".format(absValue / 100_000_000)}억주"
-        absValue >= 10_000 -> "${"%.1f".format(absValue / 10_000)}만주"
-        else -> "%,.0f주".format(absValue)
+        absValue >= 100_000_000 -> "${"%.1f".format(absValue / 100_000_000)}억"
+        absValue >= 10_000 -> "${"%.0f".format(absValue / 10_000)}만"
+        else -> "%,.0f".format(absValue)
     }
-    return if (v > 0) "+$body" else if (v < 0) "-$body" else "0주"
+    return if (v > 0) "+$body" else if (v < 0) "-$body" else "0"
 }

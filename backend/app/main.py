@@ -740,10 +740,43 @@ _INVESTOR_DAILY_CACHE: dict[str, tuple[datetime, StockInvestorDailyResponse]] = 
 _INTRADAY_TREND_CACHE: dict[str, tuple[datetime, StockTrendIntradayResponse]] = {}
 _SUPPLY_CACHE: dict[str, tuple[datetime, SupplyResponse]] = {}
 _SUPPLY_LAST_GOOD_CACHE: dict[str, tuple[datetime, SupplyResponse]] = {}
+
+
+def _save_supply_last_good_file(payload: SupplyResponse) -> None:
+    """수급 last-good 데이터를 파일에 영구 저장."""
+    try:
+        data = {"saved_at": datetime.now(tz=SEOUL).isoformat(), "payload": payload.model_dump(mode="json")}
+        tmp = _SUPPLY_LAST_GOOD_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(data, f, ensure_ascii=False, default=str)
+        os.replace(tmp, _SUPPLY_LAST_GOOD_FILE)
+    except Exception:
+        logger.debug("supply last-good file save failed", exc_info=True)
+
+
+def _load_supply_last_good_file() -> SupplyResponse | None:
+    """파일에서 수급 last-good 데이터 로드 (서버 재시작 후 fallback)."""
+    try:
+        if not os.path.exists(_SUPPLY_LAST_GOOD_FILE):
+            return None
+        with open(_SUPPLY_LAST_GOOD_FILE) as f:
+            data = json.load(f)
+        saved_at = datetime.fromisoformat(data["saved_at"])
+        age = (datetime.now(tz=SEOUL) - saved_at).total_seconds()
+        if age > _SUPPLY_LAST_GOOD_MAX_AGE_SECONDS:
+            return None
+        resp = SupplyResponse.model_validate(data["payload"])
+        resp.source = "CACHE"
+        resp.message = "전일 수급 데이터 (서버 재시작 후 복원)"
+        return resp
+    except Exception:
+        logger.debug("supply last-good file load failed", exc_info=True)
+        return None
 _INVESTOR_DAILY_TTL_SECONDS = max(120, min(3600, int(os.getenv("INVESTOR_DAILY_TTL_SECONDS", "300"))))
 _INTRADAY_TREND_TTL_SECONDS = max(5, min(60, int(os.getenv("INTRADAY_TREND_TTL_SECONDS", "12"))))
 _SUPPLY_TTL_SECONDS = max(10, min(120, int(os.getenv("SUPPLY_TTL_SECONDS", "40"))))
-_SUPPLY_LAST_GOOD_MAX_AGE_SECONDS = max(120, min(3600, int(os.getenv("SUPPLY_LAST_GOOD_MAX_AGE_SECONDS", "900"))))
+_SUPPLY_LAST_GOOD_MAX_AGE_SECONDS = max(120, min(86400, int(os.getenv("SUPPLY_LAST_GOOD_MAX_AGE_SECONDS", "86400"))))
+_SUPPLY_LAST_GOOD_FILE = os.path.join(os.getenv("STOCK_DATA_DIR", "/var/lib/stock-backend"), "supply_last_good.json")
 _SUPPLY_COMPUTE_BUDGET_SECONDS = max(6, min(45, int(os.getenv("SUPPLY_COMPUTE_BUDGET_SECONDS", "12"))))
 _SUPPLY_MIN_ITEMS_ON_BUDGET = max(6, min(40, int(os.getenv("SUPPLY_MIN_ITEMS_ON_BUDGET", "12"))))
 _SUPPLY_CANDIDATE_LIMIT_MAX = max(40, min(180, int(os.getenv("SUPPLY_CANDIDATE_LIMIT_MAX", "90"))))
@@ -2126,16 +2159,6 @@ def _compute_supply_live(
 ) -> SupplyResponse:
     now_ts = datetime.now(tz=SEOUL)
     started_at = perf_counter()
-    if not settings.krx_api_key:
-        return SupplyResponse(
-            as_of=now_ts,
-            bas_dd="",
-            source="FALLBACK",
-            message="KRX_API_KEY가 비어 있어 수급 데이터를 생성할 수 없습니다.",
-            notes=["서버 환경변수 KRX_API_KEY 확인 필요"],
-            items=[],
-        )
-
     cfg = _supply_cfg()
     bas_dd = _supply_recent_bas_dd(cfg)
     frames = _supply_market_frames(cfg, bas_dd, markets)
@@ -2204,6 +2227,7 @@ def _compute_supply_live(
     narrowed = pre_candidates[:candidate_limit]
 
     items: list[dict[str, Any]] = []
+    daily_agg: dict[str, dict[str, int]] = {}  # date -> {foreign, institution, individual}
     fallback_rows = 0
     low_conf_rows = 0
     budget_exhausted = False
@@ -2225,20 +2249,51 @@ def _compute_supply_live(
         if investor_source == "FALLBACK" and investor_days < 3:
             continue
 
-        # 금액(value) 우선, 없으면 수량(qty) 폴백 (네이버 fallback은 value=0)
+        # 금액(value) 우선, 없으면 수량(qty) × 현재가로 추정 거래액 계산
         _has_value = any(getattr(r, "foreign_value", 0) != 0 or getattr(r, "institution_value", 0) != 0 for r in investor_rows[:3])
-        if not _has_value:
-            supply_unit = "qty"
-        _f_key = "foreign_value" if _has_value else "foreign_qty"
-        _i_key = "institution_value" if _has_value else "institution_qty"
-        _d_key = "individual_value" if _has_value else "individual_qty"
+        if _has_value:
+            _f_key = "foreign_value"
+            _i_key = "institution_value"
+            _d_key = "individual_value"
+        else:
+            _f_key = "foreign_qty"
+            _i_key = "institution_qty"
+            _d_key = "individual_qty"
         foreign_3d = _sum_investor_qty(investor_rows, 3, _f_key)
         institution_3d = _sum_investor_qty(investor_rows, 3, _i_key)
         individual_3d = _sum_investor_qty(investor_rows, 3, _d_key)
+        # qty → value 변환 (현재가 × 수량 = 추정 거래액)
+        if not _has_value and q is not None:
+            price = float(getattr(q, "price", 0) or getattr(q, "prev_close", 0) or 0)
+            if price > 0:
+                foreign_3d = int(foreign_3d * price)
+                institution_3d = int(institution_3d * price)
+                individual_3d = int(individual_3d * price)
         net_3d = foreign_3d + institution_3d
         net_5d = _sum_investor_qty(investor_rows, 5, _f_key) + _sum_investor_qty(investor_rows, 5, _i_key)
         if net_3d <= 0 and net_5d <= 0:
             continue
+
+        # 일별 집계 (스파크라인용)
+        _price_for_conv = 0.0
+        if not _has_value and q is not None:
+            _price_for_conv = float(getattr(q, "price", 0) or getattr(q, "prev_close", 0) or 0)
+        for inv_row in investor_rows[:5]:
+            d_str = str(getattr(inv_row, "date", "") or "")
+            if not d_str:
+                continue
+            if d_str not in daily_agg:
+                daily_agg[d_str] = {"foreign": 0, "institution": 0, "individual": 0}
+            f_val = _safe_int_from_any(getattr(inv_row, _f_key, 0))
+            i_val = _safe_int_from_any(getattr(inv_row, _i_key, 0))
+            d_val = _safe_int_from_any(getattr(inv_row, _d_key, 0))
+            if not _has_value and _price_for_conv > 0:
+                f_val = int(f_val * _price_for_conv)
+                i_val = int(i_val * _price_for_conv)
+                d_val = int(d_val * _price_for_conv)
+            daily_agg[d_str]["foreign"] += f_val
+            daily_agg[d_str]["institution"] += i_val
+            daily_agg[d_str]["individual"] += d_val
 
         flow_label = _supply_flow_label(foreign_3d, institution_3d, individual_3d, net_3d)
         if (not include_contrarian) and flow_label == "개인 역추세":
@@ -2348,6 +2403,13 @@ def _compute_supply_live(
         low_conf_rows,
     )
 
+    # 일별 스파크라인 데이터 (최근 5일, 날짜 오름차순)
+    sorted_daily = sorted(daily_agg.items(), key=lambda x: x[0])[-5:]
+    daily_flow_items = [
+        {"date": d, "foreign": v["foreign"], "institution": v["institution"], "individual": v["individual"]}
+        for d, v in sorted_daily
+    ]
+
     return SupplyResponse.model_validate(
         {
             "as_of": now_ts,
@@ -2359,6 +2421,7 @@ def _compute_supply_live(
             "candidate_quotes": len(qmap),
             "notes": notes,
             "items": selected,
+            "daily_flow": daily_flow_items,
         }
     )
 
@@ -4907,6 +4970,62 @@ def get_eval_monthly(end: str = Query(...), ctx=Depends(get_token_context)):
         p = json.loads(m.payload_json)
         return EvalMonthlyResponse(end=m.end_date.isoformat(), trades_total=int(p.get("trades_total", 0)), win_rate=float(p.get("win_rate", 0)), avg_r=float(p.get("avg_r", 0)), expectancy_r=float(p.get("expectancy_r", m.expectancy_r)), mdd_r=float(p.get("mdd_r", m.mdd_r)), gate_on_days_recent=int(p.get("gate_on_days_recent", 0)), gate_metric_recent=float(p.get("gate_metric_recent", 0)), payload=p)
 
+# ── 실시간 시장 지수 ──
+_MARKET_INDICES_CACHE: dict[str, tuple[datetime, dict]] = {}
+_MARKET_INDICES_CACHE_LOCK = Lock()
+_MARKET_INDICES_TTL = 30  # seconds
+
+
+def _fetch_naver_index(service: str, code: str, *, divisor: float = 1.0) -> dict | None:
+    """Naver Finance API로 지수/환율 실시간 조회."""
+    import requests as _req
+    try:
+        url = "https://polling.finance.naver.com/api/realtime"
+        query = f"{service}:{code}"
+        r = _req.get(url, params={"query": query}, timeout=1.5)
+        r.raise_for_status()
+        areas = r.json().get("result", {}).get("areas", [])
+        datas = areas[0].get("datas", []) if areas else []
+        if not datas:
+            return None
+        d = datas[0]
+        nv = d.get("nv")
+        cv = d.get("cv")
+        cr = d.get("cr")
+        if nv is None:
+            return None
+        val = float(str(nv).replace(",", "")) / divisor
+        chg = float(str(cv or 0).replace(",", "")) / divisor
+        return {"value": round(val, 2), "change": round(chg, 2), "change_pct": float(str(cr or 0).replace(",", ""))}
+    except Exception:
+        return None
+
+
+@app.get("/market/indices")
+def get_market_indices(ctx=Depends(get_token_context)):
+    require_active_user(ctx)
+    now_ts = datetime.now(tz=SEOUL)
+    with _MARKET_INDICES_CACHE_LOCK:
+        hit = _MARKET_INDICES_CACHE.get("indices")
+        if hit and (now_ts - hit[0]).total_seconds() <= _MARKET_INDICES_TTL:
+            return hit[1]
+
+    kospi = _fetch_naver_index("SERVICE_INDEX", "KOSPI", divisor=100.0)
+    kosdaq = _fetch_naver_index("SERVICE_INDEX", "KOSDAQ", divisor=100.0)
+    usdkrw = _fetch_naver_index("SERVICE_EXCHANGE", "FX_USDKRW", divisor=1.0)
+
+    result = {
+        "kospi": kospi,
+        "kosdaq": kosdaq,
+        "usdkrw": usdkrw,
+        "as_of": now_ts.isoformat(),
+        "source": "NAVER_RT",
+    }
+    with _MARKET_INDICES_CACHE_LOCK:
+        _MARKET_INDICES_CACHE["indices"] = (now_ts, result)
+    return result
+
+
 @app.get("/quotes/realtime", response_model=RealtimeQuotesResponse)
 def get_realtime_quotes(
     tickers: str = Query(...),
@@ -5038,12 +5157,23 @@ def get_market_supply(
             pass
         last_good_hit: tuple[datetime, SupplyResponse] | None = None
         now_cached = datetime.now(tz=SEOUL)
+        # unit이 qty인 경우 last-good에 value 데이터가 있으면 그걸 사용
+        is_qty_fallback = bool(payload.items) and getattr(payload, "unit", "value") == "qty"
         with _STOCK_FLOW_CACHE_LOCK:
             _SUPPLY_CACHE[cache_key] = (now_cached, payload)
-            if payload.items:
+            if payload.items and not is_qty_fallback:
                 _SUPPLY_LAST_GOOD_CACHE[cache_key] = (now_cached, payload.model_copy(deep=True))
-            else:
+                _save_supply_last_good_file(payload)
+            elif not payload.items or is_qty_fallback:
                 last_good_hit = _SUPPLY_LAST_GOOD_CACHE.get(cache_key)
+        if is_qty_fallback and last_good_hit is not None:
+            age_sec = (now_cached - last_good_hit[0]).total_seconds()
+            if age_sec <= _SUPPLY_LAST_GOOD_MAX_AGE_SECONDS and last_good_hit[1].items:
+                cached = last_good_hit[1].model_copy(deep=True)
+                cached.source = "CACHE"
+                cached.message = "거래액 데이터 미제공으로 최근 정상 스냅샷 표시"
+                cached.as_of = now_cached
+                return cached
         if (not payload.items) and last_good_hit is not None:
             age_sec = (now_cached - last_good_hit[0]).total_seconds()
             if age_sec <= _SUPPLY_LAST_GOOD_MAX_AGE_SECONDS and last_good_hit[1].items:
@@ -5062,6 +5192,11 @@ def get_market_supply(
                     age_sec,
                 )
                 return cached
+        # in-memory fallback 실패 → 파일 fallback
+        if not payload.items or is_qty_fallback:
+            file_fallback = _load_supply_last_good_file()
+            if file_fallback is not None and file_fallback.items:
+                return file_fallback
         return payload
     except Exception as exc:
         logger.exception("market supply fetch failed")
@@ -5087,6 +5222,9 @@ def get_market_supply(
             cached.message = f"실시간 수급 계산 실패로 캐시 표시: {str(exc)[:140]}"
             cached.as_of = datetime.now(tz=SEOUL)
             return cached
+        file_fallback = _load_supply_last_good_file()
+        if file_fallback is not None and file_fallback.items:
+            return file_fallback
         return SupplyResponse(
             as_of=datetime.now(tz=SEOUL),
             bas_dd="",
