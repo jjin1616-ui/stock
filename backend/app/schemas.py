@@ -1324,9 +1324,16 @@ class TradeFeedItem(BaseModel):
     price: float | None = None
     pnl: float | None = None
 
+class TradeFeedSummary(BaseModel):
+    total_count: int = 0
+    realized_pnl: float = 0.0
+    buy_count: int = 0
+    sell_count: int = 0
+
 class TradeFeedResponse(BaseModel):
     items: list[TradeFeedItem] = Field(default_factory=list)
     total: int = 0
+    summary: TradeFeedSummary | None = None
 
 class PnlCalendarDay(BaseModel):
     date: str

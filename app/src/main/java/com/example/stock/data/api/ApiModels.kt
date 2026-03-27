@@ -65,6 +65,7 @@ data class TradeFeedItemDto(
 data class TradeFeedResponseDto(
     val items: List<TradeFeedItemDto>? = emptyList(),
     val total: Int? = 0,
+    val summary: TradeFeedSummaryDto? = null,
 )
 
 // ── 실시간 시장 지수 ──

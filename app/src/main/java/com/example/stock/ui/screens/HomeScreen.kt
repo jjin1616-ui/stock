@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -124,6 +125,7 @@ fun HomeScreen() {
                 .fillMaxSize()
                 .background(PageBg)
                 .padding(innerPadding),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // ── 0. 한줄 브리핑 ──
@@ -854,13 +856,13 @@ private fun fmtSupplyValue(v: Long, isValue: Boolean): String {
     return if (isValue) {
         val uk = absV / 100_000_000.0  // 원 → 억
         when {
-            uk >= 10_000 -> "${sign}${"%.1f".format(uk / 10_000)}조"
-            uk >= 10 -> "${sign}${"%.0f".format(uk)}억"
+            uk >= 10_000 -> "${sign}${"%,.1f".format(uk / 10_000)}조"
+            uk >= 10 -> "${sign}${"%,.0f".format(uk)}억"
             else -> "${sign}${"%.1f".format(uk)}억"
         }
     } else {
         val mk = absV / 10_000.0
-        "${sign}${"%.0f".format(mk)}만주"
+        "${sign}${"%,.0f".format(mk)}만주"
     }
 }
 

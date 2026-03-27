@@ -2504,8 +2504,7 @@ class Home2ViewModel(private val repository: StockRepository) : ViewModel() {
     val autoTradeEnabledState = mutableStateOf<Boolean?>(null)
     val autoTradeEnvState = mutableStateOf<String?>(null)
     val tradeFeedState = mutableStateOf<List<com.example.stock.data.api.TradeFeedItemDto>>(emptyList())
-    // TODO: uncomment when TradeFeedSummaryDto server integration is complete
-    // val tradeFeedSummaryState = mutableStateOf<com.example.stock.data.api.TradeFeedSummaryDto?>(null)
+    val tradeFeedSummaryState = mutableStateOf<com.example.stock.data.api.TradeFeedSummaryDto?>(null)
     val liveIndicesState = mutableStateOf<com.example.stock.data.api.MarketIndicesResponseDto?>(null)
     val regimeModeState = mutableStateOf<String?>(null)
     val marketTemperatureState = mutableStateOf<com.example.stock.data.api.MarketTemperatureDto?>(null)
@@ -2537,7 +2536,15 @@ class Home2ViewModel(private val repository: StockRepository) : ViewModel() {
         viewModelScope.launch {
             coroutineScope {
                 async { loadAccount() }
+                async { loadPerformance() }
+                async { loadPremarket() }
+                async { loadMarketIndices() }
+                async { loadNewsClusters() }
+                async { loadFavorites() }
+                async { loadPnlCalendar() }
+                async { loadTradeFeed() }
             }
+            viewModelScope.launch { loadInvestorFlow() }
             startPolling()
         }
     }
@@ -2564,12 +2571,124 @@ class Home2ViewModel(private val repository: StockRepository) : ViewModel() {
         }
     }
 
+    private suspend fun loadPerformance() {
+        repository.getAutoTradePerformance(days = 30).onSuccess { perf ->
+            sectionErrorState.remove("performance")
+            performanceState.value = perf.summary
+        }.onFailure {
+            if (performanceState.value == null) sectionErrorState["performance"] = "성과 데이터를 불러올 수 없습니다"
+        }
+    }
+
+    private suspend fun loadPremarket() {
+        val seoul = kotlinx.datetime.TimeZone.of("Asia/Seoul")
+        val today = Clock.System.todayIn(seoul).toString()
+        repository.getPremarket(today).onSuccess { wrapped ->
+            premarketState.value = UiState(data = wrapped.data, loading = false, source = wrapped.source)
+            wrapped.data.regime?.let { regime ->
+                regimeModeState.value = regime.mode
+            }
+            snapshotDateState.value = wrapped.data.status?.snapshotDate
+            briefingState.value = wrapped.data.briefing
+            marketTemperatureState.value = wrapped.data.marketTemperature
+        }.onFailure { err ->
+            if (premarketState.value.data == null) {
+                premarketState.value = UiState(error = err.message, loading = false)
+            }
+        }
+    }
+
+    private suspend fun loadMarketIndices() {
+        repository.getMarketIndices().onSuccess { resp ->
+            sectionErrorState.remove("indices")
+            liveIndicesState.value = resp
+        }.onFailure {
+            if (liveIndicesState.value == null) sectionErrorState["indices"] = "시장 지수를 불러올 수 없습니다"
+        }
+    }
+
+    private suspend fun loadNewsClusters() {
+        repository.getNewsClusters(limit = 3).onSuccess { resp ->
+            sectionErrorState.remove("news")
+            newsClustersState.value = resp.clusters.orEmpty().take(3)
+        }.onFailure {
+            if (newsClustersState.value.isEmpty()) sectionErrorState["news"] = "뉴스를 불러올 수 없습니다"
+        }
+    }
+
+    private suspend fun loadFavorites() {
+        repository.getFavorites().onSuccess { items ->
+            favoritesState.value = items
+            val tickers = items.mapNotNull { it.ticker }
+            if (tickers.isNotEmpty()) {
+                repository.getRealtimeQuotes(tickers).onSuccess { q ->
+                    quoteState.putAll(q)
+                }
+            }
+        }
+    }
+
+    private suspend fun loadInvestorFlow() {
+        repository.getMarketSupply(count = 15).onSuccess { resp ->
+            sectionErrorState.remove("supply")
+            val items = resp.items.orEmpty()
+            var individual = 0L
+            var foreign = 0L
+            var institution = 0L
+            for (item in items) {
+                individual += (item.individual3d ?: 0).toLong()
+                foreign += (item.foreign3d ?: 0).toLong()
+                institution += (item.institution3d ?: 0).toLong()
+            }
+            val dailyFlow = resp.dailyFlow.orEmpty().mapNotNull { d ->
+                val dt = d.date ?: return@mapNotNull null
+                DailyFlow(date = dt, foreign = d.foreign, institution = d.institution, individual = d.individual)
+            }
+            investorFlowState.value = InvestorFlowSummary(
+                individual = individual,
+                foreign = foreign,
+                institution = institution,
+                unit = resp.unit ?: "value",
+                dailyFlow = dailyFlow,
+            )
+        }.onFailure {
+            if (investorFlowState.value == null) sectionErrorState["supply"] = "수급 데이터를 불러올 수 없습니다"
+        }
+    }
+
+    private suspend fun loadTradeFeed() {
+        repository.getAutoTradeFeed(limit = 20).onSuccess { resp ->
+            sectionErrorState.remove("feed")
+            tradeFeedState.value = resp.items.orEmpty()
+            tradeFeedSummaryState.value = resp.summary
+        }.onFailure {
+            if (tradeFeedState.value.isEmpty()) sectionErrorState["feed"] = "매매 피드를 불러올 수 없습니다"
+        }
+    }
+
+    private suspend fun loadPnlCalendar() {
+        val seoul = kotlinx.datetime.TimeZone.of("Asia/Seoul")
+        val today = Clock.System.todayIn(seoul)
+        repository.getAutoTradePnlCalendar(year = today.year, month = today.monthNumber).onSuccess { resp ->
+            sectionErrorState.remove("calendar")
+            pnlCalendarState.value = resp
+        }.onFailure {
+            if (pnlCalendarState.value == null) sectionErrorState["calendar"] = "캘린더를 불러올 수 없습니다"
+        }
+    }
+
     fun startPolling() {
         pollingJob?.cancel()
         pollingJob = viewModelScope.launch {
             delay(30_000)
             while (isActive) {
                 fetchQuotes()
+                val now = java.time.LocalTime.now(java.time.ZoneId.of("Asia/Seoul"))
+                val marketOpen = now.hour in 9..14 || (now.hour == 15 && now.minute <= 30)
+                if (marketOpen) {
+                    loadMarketIndices()
+                    loadInvestorFlow()
+                }
                 delay(30_000)
             }
         }
@@ -2581,7 +2700,11 @@ class Home2ViewModel(private val repository: StockRepository) : ViewModel() {
     }
 
     private suspend fun fetchQuotes() {
-        // Phase 1에서 구현
+        val premarketTickers = premarketState.value.data?.daytradeTop?.mapNotNull { it.ticker }.orEmpty()
+        val favTickers = favoritesState.value.mapNotNull { it.ticker }
+        val all = (premarketTickers + favTickers).distinct().take(40)
+        if (all.isEmpty()) return
+        repository.getRealtimeQuotes(all).onSuccess { map -> quoteState.putAll(map) }
     }
 
     override fun onCleared() {

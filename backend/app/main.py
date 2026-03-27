@@ -8585,7 +8585,7 @@ def news_ingest(payload: NewsIngestRequest, request: Request):
 # 홈 화면 추가 API
 # ═══════════════════════════════════════════════════
 
-from app.schemas import TradeFeedResponse, TradeFeedItem, PnlCalendarResponse, PnlCalendarDay
+from app.schemas import TradeFeedResponse, TradeFeedItem, TradeFeedSummary, PnlCalendarResponse, PnlCalendarDay
 
 
 @app.get("/autotrade/feed", response_model=TradeFeedResponse)
@@ -8623,7 +8623,13 @@ def get_autotrade_feed(
                 price=getattr(r, "filled_price", None) or getattr(r, "price", None),
                 pnl=float(pnl) if pnl is not None else None,
             ))
-        return TradeFeedResponse(items=items, total=len(items))
+        summary = TradeFeedSummary(
+            total_count=len(items),
+            realized_pnl=sum(it.pnl or 0.0 for it in items if it.side == "SELL"),
+            buy_count=sum(1 for it in items if it.side == "BUY"),
+            sell_count=sum(1 for it in items if it.side == "SELL"),
+        )
+        return TradeFeedResponse(items=items, total=len(items), summary=summary)
 
 
 @app.get("/autotrade/pnl-calendar", response_model=PnlCalendarResponse)
