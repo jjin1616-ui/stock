@@ -145,7 +145,7 @@ fun HomeScreen() {
                     environment = autoTradeEnv,
                     performance = performance,
                     reservationCount = reservationCount,
-                    gateOn = premarketState.data?.daytradeGate?.on,
+                    // gateOn 제거됨
                 )
             }
 
@@ -398,7 +398,7 @@ private fun AutoTradeStatusCard(
     environment: String?,
     performance: AutoTradePerformanceItemDto?,
     reservationCount: Int,
-    gateOn: Boolean?,
+    // gateOn 제거됨
 ) {
     HomeSectionCard(title = "자동매매") {
         if (enabled == null) {
@@ -443,21 +443,7 @@ private fun AutoTradeStatusCard(
                     )
                 }
             }
-            // Gate 상태
-            if (gateOn != null) {
-                Text(
-                    text = if (gateOn) "Gate ON" else "Gate OFF",
-                    color = if (gateOn) GreenColor else UpColor,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .background(
-                            color = if (gateOn) GreenColor.copy(alpha = 0.1f) else UpColor.copy(alpha = 0.1f),
-                            shape = RoundedCornerShape(4.dp),
-                        )
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                )
-            }
+            // Gate 상태 — 제거됨 (자동매매 내부 로직, 사용자 노출 불필요)
         }
 
         Spacer(Modifier.height(10.dp))

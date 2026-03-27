@@ -2223,8 +2223,20 @@ def _compute_supply_live(
         ),
         reverse=True,
     )
-    candidate_limit = max(40, min(_SUPPLY_CANDIDATE_LIMIT_MAX, max(count * 2, 60)))
+    candidate_limit = max(20, min(_SUPPLY_CANDIDATE_LIMIT_MAX, max(count * 2, 25)))
     narrowed = pre_candidates[:candidate_limit]
+
+    # ── 투자자 데이터 병렬 프리페치 (핵심 성능 개선) ──
+    _prefetched: dict[str, Any] = {}
+    _tickers_to_fetch = [str(row.get("ticker") or "") for row, *_ in narrowed]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(_get_stock_investor_daily_cached_or_live, ticker=t, days=days): t for t in _tickers_to_fetch}
+        for fut in as_completed(futures):
+            t = futures[fut]
+            try:
+                _prefetched[t] = fut.result()
+            except Exception:
+                pass
 
     items: list[dict[str, Any]] = []
     daily_agg: dict[str, dict[str, int]] = {}  # date -> {foreign, institution, individual}
@@ -2234,11 +2246,13 @@ def _compute_supply_live(
     supply_unit = "value"  # 금액 우선, qty 폴백 시 변경
     for row, q, chg_pct, value_ratio in narrowed:
         elapsed_sec = perf_counter() - started_at
-        if elapsed_sec >= _SUPPLY_COMPUTE_BUDGET_SECONDS and len(items) >= min(count, _SUPPLY_MIN_ITEMS_ON_BUDGET):
+        if elapsed_sec >= 5 and len(items) >= min(count, 5):
             budget_exhausted = True
             break
         ticker = str(row.get("ticker") or "")
-        investor = _get_stock_investor_daily_cached_or_live(ticker=ticker, days=days)
+        investor = _prefetched.get(ticker)
+        if investor is None:
+            continue
         investor_rows = investor.items or []
         if not investor_rows:
             continue
@@ -3481,7 +3495,7 @@ def _empty_premarket(report_date: date, status: dict) -> dict:
         "date": report_date.isoformat(),
         "generated_at": datetime.now(tz=SEOUL).isoformat(),
         "status": status,
-        "daytrade_gate": {"on": False, "lookback_days": 20, "gate_metric": 0.0, "gate_on_days": 0, "gate_total_days": 0, "reason": ["대기"]},
+        "daytrade_gate": None,
         "daytrade_top": [],
         "daytrade_primary": [],
         "daytrade_watch": [],

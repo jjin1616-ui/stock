@@ -1050,8 +1050,6 @@ def generate_premarket(
         _briefing_parts.append(f"시장 {_regime_label}")
     if gate_on:
         _briefing_parts.append(f"단타 {len(primary_items)}종목 추천")
-    else:
-        _briefing_parts.append("Gate OFF — 보수적 접근 권장")
     if longterm:
         _briefing_parts.append(f"장타 {len(longterm[:longterm_limit])}종목 유효")
     _briefing = " · ".join(_briefing_parts) if _briefing_parts else "오늘의 시장 분석을 준비 중입니다."
