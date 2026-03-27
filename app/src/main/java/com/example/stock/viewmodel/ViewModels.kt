@@ -2467,6 +2467,13 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
         pollJob = viewModelScope.launch {
             while (isActive) {
                 fetchQuotes()
+                // 장중(09:00~15:30)이면 수급 + 지수도 갱신
+                val now = java.time.LocalTime.now(java.time.ZoneId.of("Asia/Seoul"))
+                val marketOpen = now.hour in 9..14 || (now.hour == 15 && now.minute <= 30)
+                if (marketOpen) {
+                    loadMarketIndices()
+                    loadInvestorFlow()
+                }
                 delay(30_000L)
             }
         }
@@ -2528,7 +2535,32 @@ class Home2ViewModel(private val repository: StockRepository) : ViewModel() {
 
     fun load() {
         viewModelScope.launch {
-            // Phase 1에서 구현
+            coroutineScope {
+                async { loadAccount() }
+            }
+            startPolling()
+        }
+    }
+
+    private suspend fun loadAccount() {
+        try {
+            val bootstrap = repository.getAutoTradeBootstrap(fast = true)
+            bootstrap.onSuccess { boot ->
+                sectionErrorState.remove("account")
+                boot.account?.let { accountState.value = it }
+                boot.settings?.settings?.let { s ->
+                    autoTradeEnabledState.value = s.enabled
+                    autoTradeEnvState.value = s.environment
+                }
+            }.onFailure {
+                if (accountState.value == null) sectionErrorState["account"] = "계좌 정보를 불러올 수 없습니다"
+            }
+            // 예약 대기 건수
+            repository.getAutoTradeReservations(status = "PENDING").onSuccess { res ->
+                reservationCountState.value = res.total ?: 0
+            }
+        } catch (e: Exception) {
+            if (accountState.value == null) sectionErrorState["account"] = (e.message ?: "계좌 로드 실패")
         }
     }
 
