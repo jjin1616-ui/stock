@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=375, initial-scale=1.0">
+<title>Home2 - Stock App Mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0A0A0F;
+    --card: #141419;
+    --card-border: #1E1E28;
+    --surface: #1A1A24;
+    --up: #E53935;
+    --up-soft: rgba(229, 57, 53, 0.12);
+    --up-mid: rgba(229, 57, 53, 0.25);
+    --down: #1E88E5;
+    --down-soft: rgba(30, 136, 229, 0.12);
+    --down-mid: rgba(30, 136, 229, 0.25);
+    --green: #00C853;
+    --green-soft: rgba(0, 200, 83, 0.12);
+    --yellow: #FFD600;
+    --text-primary: #E8E8F0;
+    --text-secondary: #8888A0;
+    --text-tertiary: #555568;
+    --divider: #1E1E2A;
+    --radius: 14px;
+    --gap: 10px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Noto Sans KR', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    max-width: 375px;
+    margin: 0 auto;
+    min-height: 100vh;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* Status bar */
+  .status-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 20px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .status-bar .time { font-size: 15px; font-weight: 700; }
+  .status-icons { display: flex; gap: 5px; align-items: center; }
+  .status-icons svg { width: 16px; height: 16px; fill: var(--text-primary); }
+
+  /* Top bar */
+  .top-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 20px 12px;
+  }
+  .top-bar h1 {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  .top-bar .version {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+  }
+  .refresh-btn {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 1px solid var(--card-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .refresh-btn svg { width: 18px; height: 18px; stroke: var(--text-secondary); fill: none; }
+
+  /* Content */
+  .content {
+    padding: 0 12px 100px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap);
+  }
+
+  /* Card base */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent);
+  }
+
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  /* Section label */
+  .section-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 4px 4px 0;
+  }
+
+  /* Utility */
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+  .flat { color: var(--text-secondary); }
+  .green { color: var(--green); }
+  .row { display: flex; align-items: center; }
+  .between { justify-content: space-between; }
+  .gap-4 { gap: 4px; }
+  .gap-6 { gap: 6px; }
+  .gap-8 { gap: 8px; }
+  .gap-12 { gap: 12px; }
+  .flex-1 { flex: 1; }
+  .text-right { text-align: right; }
+  .text-center { text-align: center; }
+  .mt-4 { margin-top: 4px; }
+  .mt-8 { margin-top: 8px; }
+  .mt-12 { margin-top: 12px; }
+  .mb-4 { margin-bottom: 4px; }
+  .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .label { font-size: 11px; color: var(--text-tertiary); font-weight: 400; }
+  .value { font-size: 14px; font-weight: 500; }
+  .value-lg { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+  .value-md { font-size: 16px; font-weight: 600; }
+  .value-sm { font-size: 13px; font-weight: 500; }
+
+  .divider {
+    height: 1px;
+    background: var(--divider);
+    margin: 10px 0;
+  }
+
+  /* ===== ACCOUNT CARD ===== */
+  .account-card {
+    background: linear-gradient(135deg, #141419 0%, #18182a 100%);
+  }
+  .account-total {
+    margin-bottom: 4px;
+  }
+  .account-pnl {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .account-pnl .amount { font-size: 15px; font-weight: 600; }
+  .account-pnl .pct { font-size: 13px; font-weight: 500; }
+  .account-sub-row {
+    display: flex;
+    gap: 20px;
+  }
+  .account-sub-item .label { display: block; margin-bottom: 2px; }
+  .account-sub-item .value { font-size: 13px; }
+
+  .positions-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0 4px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .positions-toggle span {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+  .positions-toggle svg {
+    width: 16px; height: 16px;
+    fill: var(--text-tertiary);
+    transition: transform 0.2s;
+  }
+
+  .position-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--divider);
+  }
+  .position-item:last-child { border-bottom: none; }
+  .position-name { font-size: 14px; font-weight: 500; }
+  .position-detail { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
+  .position-pnl { font-size: 14px; font-weight: 600; }
+  .position-pct { font-size: 11px; font-weight: 500; margin-top: 2px; }
+
+  /* ===== AUTO TRADE ===== */
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 20px;
+    letter-spacing: 0.3px;
+  }
+  .chip-green { background: var(--green-soft); color: var(--green); border: 1px solid rgba(0,200,83,0.2); }
+  .chip-gray { background: rgba(136,136,160,0.1); color: var(--text-secondary); border: 1px solid rgba(136,136,160,0.15); }
+  .chip-red { background: var(--up-soft); color: var(--up); border: 1px solid rgba(229,57,53,0.2); }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2px;
+    background: var(--divider);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-top: 12px;
+  }
+  .metric-cell {
+    background: var(--card);
+    padding: 10px 4px;
+    text-align: center;
+  }
+  .metric-cell .label { display: block; margin-bottom: 4px; font-size: 10px; }
+  .metric-cell .value { font-size: 15px; font-weight: 600; }
+
+  .reservation-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 10px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    background: rgba(255, 214, 0, 0.08);
+    border: 1px solid rgba(255, 214, 0, 0.15);
+    font-size: 12px;
+    color: var(--yellow);
+  }
+  .reservation-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--yellow);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ===== TRADE FEED ===== */
+  .feed-summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border-radius: 10px;
+    margin-bottom: 8px;
+  }
+  .feed-summary .total-label {
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .feed-summary .total-pnl {
+    font-size: 16px;
+    font-weight: 700;
+  }
+  .feed-tags {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+  }
+  .feed-tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-weight: 500;
+  }
+  .feed-tag-buy { background: var(--up-soft); color: var(--up); }
+  .feed-tag-sell { background: var(--down-soft); color: var(--down); }
+
+  .feed-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--divider);
+  }
+  .feed-item:last-child { border-bottom: none; }
+  .feed-side {
+    width: 32px;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    padding: 2px 0;
+    border-radius: 4px;
+  }
+  .feed-side.buy { background: var(--up-soft); color: var(--up); }
+  .feed-side.sell { background: var(--down-soft); color: var(--down); }
+  .feed-info { flex: 1; margin-left: 10px; }
+  .feed-name { font-size: 13px; font-weight: 500; }
+  .feed-qty { font-size: 11px; color: var(--text-tertiary); }
+  .feed-pnl { font-size: 13px; font-weight: 600; text-align: right; }
+  .feed-time { font-size: 10px; color: var(--text-tertiary); text-align: right; }
+
+  /* ===== MARKET ===== */
+  .market-indices {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .market-index {
+    padding: 12px;
+    background: var(--surface);
+    border-radius: 10px;
+    border: 1px solid var(--divider);
+  }
+  .market-index .name {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-bottom: 4px;
+    font-weight: 500;
+  }
+  .market-index .price {
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .market-index .change {
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 2px;
+  }
+  .market-fx {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--surface);
+    border-radius: 10px;
+    border: 1px solid var(--divider);
+    margin-top: 8px;
+  }
+  .market-meta {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+  }
+  .market-meta-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .regime-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(255,214,0,0.1);
+    color: var(--yellow);
+    border: 1px solid rgba(255,214,0,0.2);
+  }
+  .temp-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(255,214,0,0.1);
+    color: var(--yellow);
+    border: 1px solid rgba(255,214,0,0.2);
+  }
+
+  /* ===== HEATMAP ===== */
+  .heatmap-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+  }
+  .heatmap-cell {
+    padding: 10px 6px;
+    border-radius: 8px;
+    text-align: center;
+    min-height: 52px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s;
+  }
+  .heatmap-cell:active { transform: scale(0.96); }
+  .heatmap-name {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.9);
+    margin-bottom: 2px;
+    line-height: 1.2;
+  }
+  .heatmap-pct {
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.95);
+  }
+
+  /* Heatmap color intensities */
+  .heat-up-3 { background: rgba(229, 57, 53, 0.85); }
+  .heat-up-2 { background: rgba(229, 57, 53, 0.55); }
+  .heat-up-1 { background: rgba(229, 57, 53, 0.30); }
+  .heat-flat { background: rgba(136, 136, 160, 0.15); }
+  .heat-down-1 { background: rgba(30, 136, 229, 0.30); }
+  .heat-down-2 { background: rgba(30, 136, 229, 0.55); }
+  .heat-down-3 { background: rgba(30, 136, 229, 0.85); }
+
+  /* ===== VOLUME SURGE ===== */
+  .surge-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--divider);
+    cursor: pointer;
+  }
+  .surge-item:last-child { border-bottom: none; }
+  .surge-item:active { opacity: 0.7; }
+  .surge-rank {
+    width: 22px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-tertiary);
+  }
+  .surge-info { flex: 1; margin-left: 8px; }
+  .surge-name { font-size: 14px; font-weight: 500; }
+  .surge-ticker { font-size: 11px; color: var(--text-tertiary); }
+  .surge-price { font-size: 14px; font-weight: 600; text-align: right; }
+  .surge-change { font-size: 12px; font-weight: 600; text-align: right; margin-top: 1px; }
+
+  /* ===== 52 WEEK ===== */
+  .extreme-section-label {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 10px;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    display: inline-block;
+  }
+  .extreme-high-label { background: var(--up-soft); color: var(--up); }
+  .extreme-low-label { background: var(--down-soft); color: var(--down); }
+
+  .extreme-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+  }
+  .extreme-name { font-size: 13px; font-weight: 500; flex: 1; }
+  .extreme-price { font-size: 14px; font-weight: 600; }
+
+  /* ===== RECOMMENDATIONS ===== */
+  .rec-type-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    margin-top: 4px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    display: inline-block;
+  }
+  .rec-short { background: var(--up-soft); color: var(--up); }
+  .rec-long { background: var(--down-soft); color: var(--down); }
+
+  .rec-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--divider);
+  }
+  .rec-item:last-child { border-bottom: none; }
+  .rec-name { font-size: 13px; font-weight: 500; }
+  .rec-reason {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+    max-width: 260px;
+  }
+
+  /* ===== INVESTOR FLOW ===== */
+  .flow-row {
+    display: grid;
+    grid-template-columns: 60px 1fr 1fr 1fr;
+    gap: 4px;
+    padding: 6px 0;
+    font-size: 13px;
+    align-items: center;
+  }
+  .flow-row.header {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-weight: 500;
+    border-bottom: 1px solid var(--divider);
+    padding-bottom: 8px;
+    margin-bottom: 2px;
+  }
+  .flow-row .period { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+  .flow-val { text-align: right; font-weight: 600; font-size: 13px; }
+
+  /* ===== FAVORITES ===== */
+  .fav-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--divider);
+    gap: 10px;
+    cursor: pointer;
+  }
+  .fav-item:last-child { border-bottom: none; }
+  .fav-item:active { opacity: 0.7; }
+  .fav-logo {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 1px solid var(--card-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+  .fav-info { flex: 1; min-width: 0; }
+  .fav-name { font-size: 14px; font-weight: 500; }
+  .fav-ticker { font-size: 11px; color: var(--text-tertiary); }
+  .fav-sparkline {
+    width: 50px; height: 24px;
+    margin: 0 8px;
+    flex-shrink: 0;
+  }
+  .fav-price-col { text-align: right; flex-shrink: 0; }
+  .fav-price { font-size: 14px; font-weight: 600; }
+  .fav-change { font-size: 12px; font-weight: 600; margin-top: 1px; }
+
+  .see-more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-top: 1px solid var(--divider);
+    margin-top: 4px;
+  }
+
+  /* ===== DIVIDEND ===== */
+  .dividend-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--divider);
+  }
+  .dividend-item:last-child { border-bottom: none; }
+  .dividend-date-badge {
+    width: 44px;
+    padding: 6px 0;
+    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--card-border);
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .dividend-month { font-size: 10px; color: var(--text-tertiary); font-weight: 500; }
+  .dividend-day { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+  .dividend-info { flex: 1; margin-left: 12px; }
+  .dividend-name { font-size: 14px; font-weight: 500; }
+  .dividend-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
+  .dividend-yield { text-align: right; }
+  .dividend-yield-val { font-size: 16px; font-weight: 700; color: var(--green); }
+  .dividend-yield-label { font-size: 10px; color: var(--text-tertiary); }
+
+  /* ===== PNL CALENDAR ===== */
+  .pnl-summary {
+    display: flex;
+    gap: 24px;
+  }
+  .pnl-item .label { display: block; margin-bottom: 4px; }
+
+  /* ===== NEWS ===== */
+  .news-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--divider);
+    cursor: pointer;
+  }
+  .news-item:last-child { border-bottom: none; }
+  .news-item:active { opacity: 0.7; }
+  .news-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    margin-top: 2px;
+    letter-spacing: 0.3px;
+  }
+  .news-badge-market { background: rgba(30,136,229,0.12); color: var(--down); }
+  .news-badge-stock { background: rgba(229,57,53,0.12); color: var(--up); }
+  .news-badge-policy { background: rgba(0,200,83,0.12); color: var(--green); }
+  .news-title { font-size: 13px; font-weight: 400; line-height: 1.5; }
+  .news-source { font-size: 11px; color: var(--text-tertiary); margin-top: 3px; }
+
+  /* ===== TAB BAR ===== */
+  .tab-bar {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 375px;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    padding: 8px 0 24px;
+    background: linear-gradient(to top, var(--bg) 60%, transparent);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    z-index: 100;
+  }
+  .tab-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    cursor: pointer;
+    padding: 4px 8px;
+    position: relative;
+  }
+  .tab-item svg { width: 22px; height: 22px; fill: var(--text-tertiary); }
+  .tab-item span { font-size: 10px; color: var(--text-tertiary); font-weight: 500; }
+  .tab-item.active svg { fill: var(--text-primary); }
+  .tab-item.active span { color: var(--text-primary); font-weight: 600; }
+  .tab-item.active::after {
+    content: '';
+    position: absolute;
+    top: -4px;
+    width: 20px; height: 3px;
+    border-radius: 2px;
+    background: var(--text-primary);
+  }
+
+  /* Sparkline SVG */
+  .spark-up { stroke: var(--up); }
+  .spark-down { stroke: var(--down); }
+</style>
+</head>
+<body>
+
+<!-- Status Bar -->
+<div class="status-bar">
+  <span class="time mono">13:42</span>
+  <div class="status-icons">
+    <svg viewBox="0 0 24 24"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></svg>
+    <svg viewBox="0 0 24 24"><path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/></svg>
+  </div>
+</div>
+
+<!-- Top Bar -->
+<div class="top-bar">
+  <div>
+    <h1>홈2</h1>
+    <div class="version mono">V3_757</div>
+  </div>
+  <div class="refresh-btn">
+    <svg viewBox="0 0 24 24" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- 1. ACCOUNT -->
+  <div class="card account-card">
+    <div class="card-title">내 계좌</div>
+    <div class="account-total">
+      <div class="label">총 평가자산</div>
+      <div class="value-lg mono">15,234,500<span style="font-size:14px;font-weight:400;color:var(--text-secondary)">원</span></div>
+    </div>
+    <div class="account-pnl">
+      <span class="amount mono up">+234,500원</span>
+      <span class="pct mono up">(+1.56%)</span>
+    </div>
+    <div class="account-sub-row">
+      <div class="account-sub-item">
+        <span class="label">예수금</span>
+        <span class="value mono">3,450,000원</span>
+      </div>
+      <div class="account-sub-item">
+        <span class="label">매수가능</span>
+        <span class="value mono">3,200,000원</span>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="positions-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'; this.querySelector('svg').style.transform=this.nextElementSibling.style.display==='none'?'rotate(-90deg)':'rotate(0)'">
+      <span>보유 종목 3개</span>
+      <svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>
+    </div>
+    <div>
+      <div class="position-item">
+        <div>
+          <div class="position-name">삼성전자</div>
+          <div class="position-detail mono">10주 · 평단 72,000원</div>
+        </div>
+        <div class="text-right">
+          <div class="position-pnl mono up">+15,000원</div>
+          <div class="position-pct mono up">+2.08%</div>
+        </div>
+      </div>
+      <div class="position-item">
+        <div>
+          <div class="position-name">SK하이닉스</div>
+          <div class="position-detail mono">5주 · 평단 185,000원</div>
+        </div>
+        <div class="text-right">
+          <div class="position-pnl mono down">-12,500원</div>
+          <div class="position-pct mono down">-1.35%</div>
+        </div>
+      </div>
+      <div class="position-item">
+        <div>
+          <div class="position-name">현대차</div>
+          <div class="position-detail mono">3주 · 평단 245,000원</div>
+        </div>
+        <div class="text-right">
+          <div class="position-pnl mono up">+8,200원</div>
+          <div class="position-pct mono up">+1.12%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. AUTO TRADE -->
+  <div class="card">
+    <div class="card-title">자동매매</div>
+    <div class="chips">
+      <span class="chip chip-green">실행중</span>
+      <span class="chip chip-gray">DEMO</span>
+      <span class="chip chip-green">진입 허용</span>
+    </div>
+    <div class="metrics-grid">
+      <div class="metric-cell">
+        <span class="label">수익률</span>
+        <span class="value mono up">+3.2%</span>
+      </div>
+      <div class="metric-cell">
+        <span class="label">승률</span>
+        <span class="value mono">65%</span>
+      </div>
+      <div class="metric-cell">
+        <span class="label">MDD</span>
+        <span class="value mono down">-1.8%</span>
+      </div>
+      <div class="metric-cell">
+        <span class="label">주문</span>
+        <span class="value mono">12건</span>
+      </div>
+    </div>
+    <div class="reservation-tag">
+      <div class="reservation-dot"></div>
+      예약 대기 2건
+    </div>
+  </div>
+
+  <!-- 3. TRADE FEED -->
+  <div class="card">
+    <div class="card-title">오늘 체결</div>
+    <div class="feed-summary">
+      <div>
+        <div class="total-label">총 체결 <strong class="mono">5</strong>건</div>
+      </div>
+      <div>
+        <div class="total-pnl mono up">+45,200원</div>
+      </div>
+      <div class="feed-tags">
+        <span class="feed-tag feed-tag-buy mono">매수 3</span>
+        <span class="feed-tag feed-tag-sell mono">매도 2</span>
+      </div>
+    </div>
+    <div class="feed-item">
+      <div class="feed-side sell">매도</div>
+      <div class="feed-info">
+        <div class="feed-name">삼성전자</div>
+        <div class="feed-qty mono">10주</div>
+      </div>
+      <div>
+        <div class="feed-pnl mono up">+23,000원</div>
+        <div class="feed-time mono">14:30</div>
+      </div>
+    </div>
+    <div class="feed-item">
+      <div class="feed-side buy">매수</div>
+      <div class="feed-info">
+        <div class="feed-name">SK하이닉스</div>
+        <div class="feed-qty mono">5주</div>
+      </div>
+      <div>
+        <div class="feed-pnl mono flat">-</div>
+        <div class="feed-time mono">13:45</div>
+      </div>
+    </div>
+    <div class="feed-item">
+      <div class="feed-side sell">매도</div>
+      <div class="feed-info">
+        <div class="feed-name">카카오</div>
+        <div class="feed-qty mono">20주</div>
+      </div>
+      <div>
+        <div class="feed-pnl mono up">+22,200원</div>
+        <div class="feed-time mono">11:20</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. MARKET -->
+  <div class="card">
+    <div class="card-title">시장 지표</div>
+    <div class="market-indices">
+      <div class="market-index">
+        <div class="name">코스피</div>
+        <div class="price mono">2,645.32</div>
+        <div class="change mono down">-1.03%</div>
+      </div>
+      <div class="market-index">
+        <div class="name">코스닥</div>
+        <div class="price mono">842.15</div>
+        <div class="change mono up">+0.18%</div>
+      </div>
+    </div>
+    <div class="market-fx">
+      <div>
+        <div style="font-size:11px;color:var(--text-tertiary)">원/달러</div>
+        <div class="mono" style="font-size:16px;font-weight:600;margin-top:2px">1,385.50</div>
+      </div>
+      <div class="mono up" style="font-size:14px;font-weight:600">+0.25%</div>
+    </div>
+    <div class="market-meta">
+      <div class="market-meta-item">
+        시장 체제 <span class="regime-badge">중립</span>
+      </div>
+      <div class="market-meta-item">
+        온도 <span class="temp-badge">🌡 45°</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. HEATMAP -->
+  <div class="card">
+    <div class="card-title">업종별 등락</div>
+    <div class="heatmap-grid">
+      <div class="heatmap-cell heat-up-3"><span class="heatmap-name">반도체</span><span class="heatmap-pct mono">+2.3%</span></div>
+      <div class="heatmap-cell heat-up-2"><span class="heatmap-name">자동차</span><span class="heatmap-pct mono">+1.5%</span></div>
+      <div class="heatmap-cell heat-up-1"><span class="heatmap-name">건설</span><span class="heatmap-pct mono">+0.8%</span></div>
+      <div class="heatmap-cell heat-up-1"><span class="heatmap-name">조선</span><span class="heatmap-pct mono">+0.6%</span></div>
+      <div class="heatmap-cell heat-flat"><span class="heatmap-name">통신</span><span class="heatmap-pct mono">+0.1%</span></div>
+      <div class="heatmap-cell heat-flat"><span class="heatmap-name">유틸리티</span><span class="heatmap-pct mono">0.0%</span></div>
+      <div class="heatmap-cell heat-down-1"><span class="heatmap-name">은행</span><span class="heatmap-pct mono">-0.5%</span></div>
+      <div class="heatmap-cell heat-down-1"><span class="heatmap-name">보험</span><span class="heatmap-pct mono">-0.3%</span></div>
+      <div class="heatmap-cell heat-down-1"><span class="heatmap-name">증권</span><span class="heatmap-pct mono">-0.7%</span></div>
+      <div class="heatmap-cell heat-down-2"><span class="heatmap-name">바이오</span><span class="heatmap-pct mono">-1.8%</span></div>
+      <div class="heatmap-cell heat-up-2"><span class="heatmap-name">2차전지</span><span class="heatmap-pct mono">+1.2%</span></div>
+      <div class="heatmap-cell heat-down-1"><span class="heatmap-name">화학</span><span class="heatmap-pct mono">-0.4%</span></div>
+      <div class="heatmap-cell heat-up-1"><span class="heatmap-name">철강</span><span class="heatmap-pct mono">+0.5%</span></div>
+      <div class="heatmap-cell heat-down-3"><span class="heatmap-name">엔터</span><span class="heatmap-pct mono">-2.1%</span></div>
+      <div class="heatmap-cell heat-up-1"><span class="heatmap-name">운송</span><span class="heatmap-pct mono">+0.9%</span></div>
+    </div>
+  </div>
+
+  <!-- 6. VOLUME SURGE -->
+  <div class="card">
+    <div class="card-title">거래량 급등</div>
+    <div class="surge-item">
+      <span class="surge-rank mono">1</span>
+      <div class="surge-info">
+        <div class="surge-name">한화에어로스페이스</div>
+        <div class="surge-ticker mono">012450</div>
+      </div>
+      <div>
+        <div class="surge-price mono">352,000원</div>
+        <div class="surge-change mono up">+8.52%</div>
+      </div>
+    </div>
+    <div class="surge-item">
+      <span class="surge-rank mono">2</span>
+      <div class="surge-info">
+        <div class="surge-name">HD현대중공업</div>
+        <div class="surge-ticker mono">329180</div>
+      </div>
+      <div>
+        <div class="surge-price mono">215,500원</div>
+        <div class="surge-change mono up">+5.37%</div>
+      </div>
+    </div>
+    <div class="surge-item">
+      <span class="surge-rank mono">3</span>
+      <div class="surge-info">
+        <div class="surge-name">에코프로비엠</div>
+        <div class="surge-ticker mono">247540</div>
+      </div>
+      <div>
+        <div class="surge-price mono">178,200원</div>
+        <div class="surge-change mono up">+4.21%</div>
+      </div>
+    </div>
+    <div class="surge-item">
+      <span class="surge-rank mono">4</span>
+      <div class="surge-info">
+        <div class="surge-name">포스코퓨처엠</div>
+        <div class="surge-ticker mono">003670</div>
+      </div>
+      <div>
+        <div class="surge-price mono">245,000원</div>
+        <div class="surge-change mono down">-2.19%</div>
+      </div>
+    </div>
+    <div class="surge-item">
+      <span class="surge-rank mono">5</span>
+      <div class="surge-info">
+        <div class="surge-name">두산에너빌리티</div>
+        <div class="surge-ticker mono">034020</div>
+      </div>
+      <div>
+        <div class="surge-price mono">22,850원</div>
+        <div class="surge-change mono up">+3.85%</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. 52 WEEK -->
+  <div class="card">
+    <div class="card-title">52주 신고가 / 신저가</div>
+    <span class="extreme-section-label extreme-high-label">▲ 신고가</span>
+    <div class="extreme-item">
+      <span class="extreme-name">한미반도체</span>
+      <span class="extreme-price mono up">98,500원</span>
+    </div>
+    <div class="extreme-item">
+      <span class="extreme-name">SK아이이테크놀로지</span>
+      <span class="extreme-price mono up">125,000원</span>
+    </div>
+    <div class="extreme-item">
+      <span class="extreme-name">HD현대일렉트릭</span>
+      <span class="extreme-price mono up">312,500원</span>
+    </div>
+    <div class="divider"></div>
+    <span class="extreme-section-label extreme-low-label">▼ 신저가</span>
+    <div class="extreme-item">
+      <span class="extreme-name">셀트리온헬스케어</span>
+      <span class="extreme-price mono down">52,300원</span>
+    </div>
+    <div class="extreme-item">
+      <span class="extreme-name">카카오뱅크</span>
+      <span class="extreme-price mono down">18,950원</span>
+    </div>
+    <div class="extreme-item">
+      <span class="extreme-name">크래프톤</span>
+      <span class="extreme-price mono down">168,500원</span>
+    </div>
+  </div>
+
+  <!-- 8. RECOMMENDATIONS -->
+  <div class="card">
+    <div class="card-title">오늘의 추천</div>
+    <span class="rec-type-label rec-short">단타 TOP</span>
+    <div class="rec-item">
+      <div>
+        <div class="rec-name">부광약품</div>
+        <div class="rec-reason">조건부 진입(게이트OFF +0.000) · 분할/소액 관점</div>
+      </div>
+    </div>
+    <div class="rec-item">
+      <div>
+        <div class="rec-name">광전자</div>
+        <div class="rec-reason">조건부 진입(게이트OFF +0.000) · 분할/소액 관점</div>
+      </div>
+    </div>
+    <div class="rec-item">
+      <div>
+        <div class="rec-name">녹십자셀</div>
+        <div class="rec-reason">조건부 진입(게이트OFF +0.000) · 분할/소액 관점</div>
+      </div>
+    </div>
+    <div class="mt-8"></div>
+    <span class="rec-type-label rec-long">장타 TOP</span>
+    <div class="rec-item">
+      <div>
+        <div class="rec-name">에이치엠엔엑스</div>
+        <div class="rec-reason">3개월 추세 +596.6% · 중기 정렬(MA20>MA60)</div>
+      </div>
+    </div>
+    <div class="rec-item">
+      <div>
+        <div class="rec-name">우리기술</div>
+        <div class="rec-reason">3개월 추세 +569.7% · 중기 정렬(MA20>MA60)</div>
+      </div>
+    </div>
+    <div class="rec-item">
+      <div>
+        <div class="rec-name">성호전자</div>
+        <div class="rec-reason">3개월 추세 +510.8% · 중기 정렬(MA20>MA60)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 9. INVESTOR FLOW -->
+  <div class="card">
+    <div class="card-title">투자자 수급 현황</div>
+    <div class="flow-row header">
+      <span></span>
+      <span class="text-right">외국인</span>
+      <span class="text-right">기관</span>
+      <span class="text-right">개인</span>
+    </div>
+    <div class="flow-row">
+      <span class="period mono">오늘</span>
+      <span class="flow-val mono up">+968.9억</span>
+      <span class="flow-val mono up">+682.2억</span>
+      <span class="flow-val mono down">-1,646.0억</span>
+    </div>
+    <div class="flow-row">
+      <span class="period mono">3일</span>
+      <span class="flow-val mono up">+6,066.8억</span>
+      <span class="flow-val mono up">+5,736.1억</span>
+      <span class="flow-val mono down">-11,817.4억</span>
+    </div>
+  </div>
+
+  <!-- 10. FAVORITES -->
+  <div class="card">
+    <div class="card-title">관심 종목</div>
+    <div class="fav-item">
+      <div class="fav-logo">SS</div>
+      <div class="fav-info">
+        <div class="fav-name">성호전자</div>
+        <div class="fav-ticker mono">043260</div>
+      </div>
+      <svg class="fav-sparkline" viewBox="0 0 50 24"><polyline points="0,20 8,18 16,14 24,16 32,10 40,8 50,4" fill="none" class="spark-up" stroke-width="1.5"/></svg>
+      <div class="fav-price-col">
+        <div class="fav-price mono">46,500원</div>
+        <div class="fav-change mono down">-2.00%</div>
+      </div>
+    </div>
+    <div class="fav-item">
+      <div class="fav-logo">ES</div>
+      <div class="fav-info">
+        <div class="fav-name">에스피지</div>
+        <div class="fav-ticker mono">058610</div>
+      </div>
+      <svg class="fav-sparkline" viewBox="0 0 50 24"><polyline points="0,12 8,14 16,10 24,8 32,6 40,4 50,2" fill="none" class="spark-up" stroke-width="1.5"/></svg>
+      <div class="fav-price-col">
+        <div class="fav-price mono">111,000원</div>
+        <div class="fav-change mono up">+2.78%</div>
+      </div>
+    </div>
+    <div class="fav-item">
+      <div class="fav-logo">KC</div>
+      <div class="fav-info">
+        <div class="fav-name">KCC</div>
+        <div class="fav-ticker mono">002380</div>
+      </div>
+      <svg class="fav-sparkline" viewBox="0 0 50 24"><polyline points="0,8 8,10 16,12 24,14 32,16 40,18 50,20" fill="none" class="spark-down" stroke-width="1.5"/></svg>
+      <div class="fav-price-col">
+        <div class="fav-price mono">520,000원</div>
+        <div class="fav-change mono down">-0.95%</div>
+      </div>
+    </div>
+    <div class="fav-item">
+      <div class="fav-logo">고</div>
+      <div class="fav-info">
+        <div class="fav-name">고려아연</div>
+        <div class="fav-ticker mono">010130</div>
+      </div>
+      <svg class="fav-sparkline" viewBox="0 0 50 24"><polyline points="0,4 8,8 16,12 24,16 32,18 40,20 50,22" fill="none" class="spark-down" stroke-width="1.5"/></svg>
+      <div class="fav-price-col">
+        <div class="fav-price mono">1,460,000원</div>
+        <div class="fav-change mono down">-5.56%</div>
+      </div>
+    </div>
+    <div class="fav-item">
+      <div class="fav-logo">기</div>
+      <div class="fav-info">
+        <div class="fav-name">기아</div>
+        <div class="fav-ticker mono">000270</div>
+      </div>
+      <svg class="fav-sparkline" viewBox="0 0 50 24"><polyline points="0,16 8,14 16,12 24,10 32,8 40,10 50,6" fill="none" class="spark-up" stroke-width="1.5"/></svg>
+      <div class="fav-price-col">
+        <div class="fav-price mono">155,500원</div>
+        <div class="fav-change mono up">+0.52%</div>
+      </div>
+    </div>
+    <div class="see-more">더보기 (+10개) →</div>
+  </div>
+
+  <!-- 11. DIVIDEND -->
+  <div class="card">
+    <div class="card-title">배당 / 권리락 일정</div>
+    <div class="dividend-item">
+      <div class="dividend-date-badge">
+        <div class="dividend-month">04월</div>
+        <div class="dividend-day mono">15</div>
+      </div>
+      <div class="dividend-info">
+        <div class="dividend-name">삼성전자</div>
+        <div class="dividend-sub mono">배당금 1,444원/주</div>
+      </div>
+      <div class="dividend-yield">
+        <div class="dividend-yield-val mono">2.1%</div>
+        <div class="dividend-yield-label">배당률</div>
+      </div>
+    </div>
+    <div class="dividend-item">
+      <div class="dividend-date-badge">
+        <div class="dividend-month">04월</div>
+        <div class="dividend-day mono">20</div>
+      </div>
+      <div class="dividend-info">
+        <div class="dividend-name">SK텔레콤</div>
+        <div class="dividend-sub mono">배당금 3,500원/주</div>
+      </div>
+      <div class="dividend-yield">
+        <div class="dividend-yield-val mono">5.2%</div>
+        <div class="dividend-yield-label">배당률</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 12. PNL CALENDAR -->
+  <div class="card">
+    <div class="card-title">이달의 수익</div>
+    <div class="pnl-summary">
+      <div class="pnl-item">
+        <span class="label">월 누적</span>
+        <span class="value-md mono up">+125,300원</span>
+      </div>
+      <div class="pnl-item">
+        <span class="label">거래</span>
+        <span class="value-md mono">23건</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 13. NEWS -->
+  <div class="card">
+    <div class="card-title">주요 뉴스</div>
+    <div class="news-item">
+      <span class="news-badge news-badge-market">시장</span>
+      <div>
+        <div class="news-title">야구팀 응원하고, 5% 금리 받고...신한은행 'KBO 리그 적금' 출시</div>
+        <div class="news-source">한국경제 · 2건</div>
+      </div>
+    </div>
+    <div class="news-item">
+      <span class="news-badge news-badge-policy">정책</span>
+      <div>
+        <div class="news-title">설계사 보정사기 연루 무더기 적발...보험사 3곳 등 재재</div>
+        <div class="news-source">매일경제 · 2건</div>
+      </div>
+    </div>
+    <div class="news-item">
+      <span class="news-badge news-badge-stock">종목</span>
+      <div>
+        <div class="news-title">민생지원금 '틀 잡혔고 다듬는 중'...규모, '선별·차등' 기존 주목</div>
+        <div class="news-source">연합뉴스 · 2건</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom spacer for tab bar -->
+  <div style="height: 20px;"></div>
+</div>
+
+<!-- TAB BAR -->
+<div class="tab-bar">
+  <div class="tab-item">
+    <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+    <span>홈</span>
+  </div>
+  <div class="tab-item">
+    <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+    <span>보고</span>
+  </div>
+  <div class="tab-item">
+    <svg viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg>
+    <span>수급</span>
+  </div>
+  <div class="tab-item active">
+    <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+    <span>홈2</span>
+  </div>
+  <div class="tab-item">
+    <svg viewBox="0 0 24 24"><path d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/></svg>
+    <span>단타</span>
+  </div>
+  <div class="tab-item">
+    <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+    <span>자동</span>
+  </div>
+</div>
+
+</body>
+</html>

@@ -2,6 +2,88 @@
 
 ---
 
+## 2026-03-27 14:30 KST
+### Home2 전체 배포 — V3_759 (안 C 대규모 확장)
+
+#### 변경 내역 (앱)
+- **Home2Screen.kt** 신규 생성: 12개 섹션 (브리핑, 계좌+보유종목, 자동매매, 체결요약, 시장지표, 업종히트맵, 거래량급등, 52주고저, 추천, 수급, 관심종목, 배당, 캘린더, 뉴스)
+- **AppNavigation.kt**: `AppTab.HOME2` 탭 추가, 라우트 등록
+- **ViewModels.kt**: `Home2ViewModel` 추가 (기존 HomeViewModel 패턴 동일)
+- **ApiModels.kt**: 9개 스텁 DTO 추가 (TradeFeedSummaryDto, SectorItemDto, SectorResponseDto, VolumeSurgeItemDto 등)
+- **StockApiService.kt**: 4개 신규 API 메서드 (sectors, volume-surge, 52week-extremes, dividends)
+- **StockRepository.kt**: 4개 suspendRunCatching 래퍼
+
+#### 변경 내역 (서버)
+- **sector_service.py** 신규: Naver Finance 업종 시세 HTML 파싱, 5분 캐시
+- **volume_surge_service.py** 신규: 거래량 상위 종목 파싱, 3분 캐시
+- **week52_service.py** 신규: 52주 신고가/신저가 파싱, 30분 캐시
+- **dividend_service.py** 신규: 배당 일정 placeholder, 1일 캐시
+- **main.py**: 4개 엔드포인트 추가 + schemas.py TradeFeedSummary 추가
+
+#### 배포
+- APK: V3_759 배포 완료 (`http://16.176.148.77/apk/app-latest.apk`)
+- 서버: rsync 전송 + restart 완료 (systemctl is-active → active)
+
+#### 검증
+- 빌드 성공 (assembleDebug)
+- 서버 기동 정상 (import 에러 없음, 스케줄러 정상 동작)
+- 신규 API 엔드포인트 등록 확인 (인증 필요 응답 = 라우트 정상)
+- 앱 실데이터 검증: 로그인 후 홈2 탭에서 확인 필요
+
+---
+
+## 2026-03-27 KST
+### 서버 크래시 루프 복구 + 서비스 파일 KillMode 추가
+
+#### 원인
+- `systemctl restart` 시 uvicorn 워커 프로세스(PID 383417, 시작 04:16:03)가 고아로 남아 포트 8000 점유
+- 신규 프로세스 바인딩 실패 → 251회 크래시 루프
+- 크래시 루프 중 토큰 무효화 → 앱 401 TOKEN_INVALID → 계좌 UNAVAILABLE
+
+#### 처치
+- 고아 프로세스 `kill 383417` → 서비스 재시작 성공 (PID 388445)
+- `/etc/systemd/system/stock-backend.service`에 `KillMode=control-group`, `TimeoutStopSec=10` 추가
+- `systemctl daemon-reload` 완료
+
+#### 앱 조치 필요
+- 사용자 **로그아웃 → 재로그인** 필요 (토큰 재발급)
+
+#### 회고
+- 이번 크래시 루프는 계좌 UNAVAILABLE의 진짜 원인이었음. KIS API 문제 아님.
+- 배포 스크립트(`publish_apk_ec2.sh`)의 `systemctl restart`가 워커를 완전히 정리하지 못한 것이 원인
+
+---
+
+## 2026-03-27 14:15 KST
+### 서버 크래시 루프 근본 원인 규명 + 4겹 방어 적용
+#### 근본 원인
+- `job_autotrade_exit_engine`이 KIS balance API 요청에 34초 블로킹 → uvicorn graceful shutdown 지연 → 이전 프로세스 포트 점유 → 새 프로세스 바인딩 실패 → 251회 크래시 루프
+- `KillMode=process`(기본값): MainPID만 kill → 소켓 해제 타이밍 경쟁
+- `@app.on_event("shutdown")`에서 `stop_scheduler()` 호출이 없어 APScheduler가 무한 대기
+
+#### 변경 내역
+- `backend/app/main.py`: `@app.on_event("shutdown")` + `stop_scheduler()` 추가
+- `backend/app/kis_broker.py`: `inquire_balance` 페이지네이션 루프에 전체 30초 overall timeout 추가 (`time.monotonic` 기반)
+- EC2 systemd 서비스 파일: `--timeout-graceful-shutdown 8` 추가
+- EC2에 `httpx` 패키지 설치 (sector_service.py 의존성)
+
+#### 4겹 방어 체계
+1. `stop_scheduler()` — SIGTERM 수신 즉시 APScheduler 중단
+2. `--timeout-graceful-shutdown 8` — uvicorn 8초 내 background task 미완료 시 강제 종료
+3. `TimeoutStopSec=10` — systemd 10초 후 SIGKILL
+4. `KillMode=control-group` — cgroup 전체 프로세스 정리
+
+#### 배포
+- 서버: rsync 전송 + restart 완료 (PID 392582 정상 동작)
+- APK: 미배포 (서버 전용 변경)
+
+#### 검증
+- `systemctl is-active` → active
+- `Application startup complete` → 정상
+- API 응답 확인 (`UNAUTHORIZED` = 인증 로직 정상 동작)
+
+---
+
 ## 2026-03-27 KST
 ### Home2 Tasks 7–9 — 거래량 급등 / 52주 신고가신저가 / 배당 일정 섹션 추가
 
@@ -25,22 +107,39 @@
 ---
 
 ## 2026-03-27 KST
-### 계좌 동기화 버그 수정 + 투자자 수급 새로고침 버튼 (V3_747)
+### 계좌 동기화 버그 2차 수정 — fast=false 재시도 (V3_756)
 
 #### 변경 내역
-- **ViewModels.kt `HomeViewModel.loadAccount()`**: `accountMutex.tryLock()` 스킵 → `withLock {}` 대기로 변경. 경쟁 시 계좌 로딩이 통째로 스킵되던 버그 수정
-- **ViewModels.kt `HomeViewModel.startPolling()`**: `accountState.value?.source == "UNAVAILABLE"` 조건 시 30초마다 계좌 자동 재시도 추가
-- **ViewModels.kt `HomeViewModel`**: `fun refreshInvestorFlow()` public 메서드 추가 (수급 수동 갱신용)
+- **ViewModels.kt `HomeViewModel.loadAccount(fast)`**: UNAVAILABLE 수신 시 2초 후 `fast=false`로 재시도 추가. 서버 캐시 우회 → 브로커 라이브 조회 강제
+- **ViewModels.kt `HomeViewModel.startPolling()`**: 폴링 UNAVAILABLE 재시도도 `loadAccount(fast=false)` 사용으로 변경
+
+#### 회고
+- V3_747 수정 불완전: `fast=true`는 서버가 UNAVAILABLE을 캐시해 반환하므로 재시도해도 캐시 히트 → 영구 UNAVAILABLE
+- `_get_cached_autotrade_account_snapshot()` 조건: 캐시 있으면 즉시 반환, UNAVAILABLE 포함
+- `fast=false` → `allow_live_fetch=True` → 캐시 무시 + 브로커 라이브 조회
+
+#### 배포
+- APK: V3_756 빌드 완료, EC2 업로드 완료
+- 서버: 변경 없음
+
+#### 검증
+- 빌드 성공 (16s)
+
+---
+
+## 2026-03-27 KST
+### 계좌 동기화 버그 1차 수정 + 투자자 수급 새로고침 버튼 (V3_747)
+
+#### 변경 내역
+- **ViewModels.kt `HomeViewModel.loadAccount()`**: `accountMutex.tryLock()` 스킵 → `withLock {}` 대기로 변경
+- **ViewModels.kt `HomeViewModel.startPolling()`**: UNAVAILABLE 시 30초마다 계좌 자동 재시도 추가
+- **ViewModels.kt `HomeViewModel`**: `fun refreshInvestorFlow()` public 메서드 추가
 - **ViewModels.kt import**: `kotlinx.coroutines.sync.withLock` 추가
-- **HomeScreen.kt `HomeSectionCard`**: `onRefresh: (() -> Unit)? = null` 파라미터 추가, 헤더 Row에 새로고침 아이콘 버튼 표시
+- **HomeScreen.kt `HomeSectionCard`**: `onRefresh: (() -> Unit)? = null` 파라미터 추가
 - **HomeScreen.kt 투자자 수급 섹션**: `onRefresh = { vm.refreshInvestorFlow() }` 연결
 
 #### 배포
 - APK: V3_747 빌드 완료, EC2 업로드 완료
-- 서버: 변경 없음 (앱 전용 수정)
-
-#### 검증
-- 빌드 성공 (17s, warning 2개는 기존 deprecated API, 기능 무관)
 
 ---
 

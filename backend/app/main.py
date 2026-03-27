@@ -212,7 +212,7 @@ from app.news_service import (
 )
 from app.bootstrap_config import build_bootstrap_manifest
 from app.report_generator import generate_premarket_report
-from app.scheduler import start_scheduler
+from app.scheduler import start_scheduler, stop_scheduler
 from app.report_cache import premarket_cache_key
 from app.ticker_tags import TagRow, upsert_tags
 from app.ticker_tags import get_tags_map
@@ -704,6 +704,11 @@ def _startup():
     # Pre-warm caches (e.g., premarket report) for better perceived performance.
     # Safe to call multiple times; scheduler guards against duplicate starts.
     start_scheduler()
+
+
+@app.on_event("shutdown")
+def _shutdown():
+    stop_scheduler()
 
 
 def _bootstrap_master() -> None:

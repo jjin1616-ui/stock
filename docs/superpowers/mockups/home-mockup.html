@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stock App — 홈 화면 3안 시안</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+  :root {
+    --up: #D32F2F;
+    --down: #1565C0;
+    --green: #00897B;
+    --bg: #F4F6FA;
+    --card: #FFFFFF;
+    --header: #1A237E;
+    --text-main: #1A1A2E;
+    --text-muted: #78909C;
+    --text-label: #546E7A;
+    --border: #E8ECF0;
+    --accent-a: #1565C0;
+    --accent-b: #6A1B9A;
+    --accent-c: #E65100;
+    --new-badge: #E8F5E9;
+    --new-badge-text: #2E7D32;
+    --improved-badge: #FFF8E1;
+    --improved-badge-text: #F57F17;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Noto Sans KR', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--sans);
+    background: #0F1117;
+    min-height: 100vh;
+    padding: 40px 20px;
+  }
+
+  .page-title {
+    text-align: center;
+    color: #E0E0E0;
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    letter-spacing: -0.5px;
+  }
+  .page-sub {
+    text-align: center;
+    color: #607D8B;
+    font-size: 13px;
+    margin-bottom: 40px;
+  }
+
+  .approaches {
+    display: flex;
+    gap: 32px;
+    justify-content: center;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .approach-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    width: 340px;
+  }
+
+  .approach-label {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 4px 14px;
+    border-radius: 20px;
+    color: white;
+  }
+  .label-a { background: var(--accent-a); }
+  .label-b { background: var(--accent-b); }
+  .label-c { background: var(--accent-c); }
+
+  .approach-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #CFD8DC;
+    margin-top: -8px;
+  }
+
+  /* Phone frame */
+  .phone {
+    width: 340px;
+    background: #1C1C1E;
+    border-radius: 44px;
+    padding: 12px 10px;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.08);
+    position: relative;
+  }
+  .phone::before {
+    content: '';
+    display: block;
+    width: 100px;
+    height: 6px;
+    background: #333;
+    border-radius: 3px;
+    margin: 0 auto 10px;
+  }
+
+  .phone-screen {
+    background: var(--bg);
+    border-radius: 34px;
+    overflow: hidden;
+    height: 660px;
+    position: relative;
+  }
+
+  /* Status bar */
+  .status-bar {
+    background: var(--header);
+    padding: 10px 18px 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .status-time {
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--mono);
+  }
+  .status-icons {
+    color: rgba(255,255,255,0.8);
+    font-size: 11px;
+    display: flex;
+    gap: 6px;
+  }
+
+  /* App bar */
+  .app-bar {
+    background: var(--header);
+    padding: 8px 16px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .app-bar-title {
+    color: white;
+    font-size: 17px;
+    font-weight: 700;
+  }
+  .app-bar-icon {
+    color: rgba(255,255,255,0.7);
+    font-size: 18px;
+  }
+
+  /* Scroll content */
+  .scroll-area {
+    height: calc(660px - 84px);
+    overflow: hidden;
+    background: var(--bg);
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    position: relative;
+  }
+  .scroll-area::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 60px;
+    background: linear-gradient(transparent, var(--bg));
+    pointer-events: none;
+  }
+
+  /* Cards */
+  .card {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 11px 13px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    position: relative;
+    flex-shrink: 0;
+  }
+  .card.new {
+    border: 1.5px solid #A5D6A7;
+    background: #FAFFFE;
+  }
+  .card.improved {
+    border: 1.5px solid #FFE082;
+    background: #FFFFF8;
+  }
+
+  .section-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-label);
+    margin-bottom: 7px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .badge-new {
+    background: var(--new-badge);
+    color: var(--new-badge-text);
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 10px;
+    letter-spacing: 0.3px;
+  }
+  .badge-improved {
+    background: var(--improved-badge);
+    color: var(--improved-badge-text);
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 10px;
+  }
+
+  /* Briefing card */
+  .briefing {
+    background: linear-gradient(135deg, #1A237E 0%, #283593 100%);
+    border-radius: 10px;
+    padding: 9px 12px;
+    color: rgba(255,255,255,0.9);
+    font-size: 11px;
+    line-height: 1.5;
+    flex-shrink: 0;
+  }
+  .briefing-icon { margin-right: 5px; }
+
+  /* Account card */
+  .account-big {
+    font-size: 20px;
+    font-weight: 900;
+    color: var(--text-main);
+    font-family: var(--mono);
+    letter-spacing: -0.5px;
+  }
+  .account-row {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 7px;
+  }
+  .account-item label {
+    display: block;
+    font-size: 9px;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+  }
+  .account-item span {
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--mono);
+  }
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+  .green { color: var(--green); }
+  .muted { color: var(--text-muted); }
+
+  /* AutoTrade card */
+  .autotrade-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .chip {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 20px;
+  }
+  .chip-on { background: #E8F5E9; color: #2E7D32; }
+  .chip-off { background: #FFEBEE; color: #C62828; }
+  .chip-demo { background: #E3F2FD; color: #1565C0; }
+  .chip-prod { background: #FFF3E0; color: #E65100; }
+  .chip-gate-on { background: #E8F5E9; color: #1B5E20; }
+  .chip-gate-off { background: #FFEBEE; color: #B71C1C; }
+
+  .autotrade-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 4px;
+  }
+  .stat-box {
+    background: #F8F9FC;
+    border-radius: 7px;
+    padding: 5px 6px;
+  }
+  .stat-box label {
+    display: block;
+    font-size: 9px;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+  }
+  .stat-box span {
+    font-size: 12px;
+    font-weight: 700;
+    font-family: var(--mono);
+  }
+
+  /* Trade feed */
+  .trade-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 10px;
+  }
+  .trade-item:last-child { border-bottom: none; }
+  .trade-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .trade-dot-buy { background: var(--up); }
+  .trade-dot-sell { background: var(--down); }
+  .trade-name { flex: 1; color: var(--text-main); font-weight: 500; }
+  .trade-pnl { font-family: var(--mono); font-weight: 600; font-size: 10px; }
+
+  /* Market indices */
+  .index-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .index-box {
+    flex: 1;
+    background: #F8F9FC;
+    border-radius: 8px;
+    padding: 7px 8px;
+  }
+  .index-label { font-size: 9px; color: var(--text-muted); margin-bottom: 3px; }
+  .index-value { font-size: 15px; font-weight: 700; font-family: var(--mono); color: var(--text-main); }
+  .index-change { font-size: 10px; font-weight: 600; font-family: var(--mono); }
+
+  .temp-bar {
+    height: 5px;
+    background: linear-gradient(to right, #1565C0, #81C784, #D32F2F);
+    border-radius: 3px;
+    margin-top: 6px;
+    position: relative;
+  }
+  .temp-needle {
+    position: absolute;
+    top: -4px;
+    width: 3px; height: 13px;
+    background: var(--text-main);
+    border-radius: 1px;
+    transform: translateX(-50%);
+    left: 62%;
+  }
+  .temp-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 3px;
+  }
+  .temp-labels span { font-size: 8px; color: var(--text-muted); }
+
+  /* Holdings */
+  .holding-item {
+    display: flex;
+    align-items: center;
+    padding: 4px 0;
+    gap: 7px;
+    border-bottom: 1px solid var(--border);
+  }
+  .holding-item:last-child { border-bottom: none; }
+  .holding-ticker {
+    font-size: 9px;
+    font-weight: 700;
+    background: #EEF2FF;
+    color: #3949AB;
+    padding: 2px 5px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    width: 50px;
+    text-align: center;
+  }
+  .holding-name { flex: 1; font-size: 10px; color: var(--text-main); font-weight: 500; }
+  .holding-pnl { font-size: 10px; font-family: var(--mono); font-weight: 600; }
+  .holding-pct { font-size: 9px; font-family: var(--mono); }
+
+  /* Recommend */
+  .rec-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 7px;
+  }
+  .rec-tab {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 20px;
+    border: 1.5px solid var(--border);
+    color: var(--text-muted);
+  }
+  .rec-tab.active {
+    background: var(--header);
+    color: white;
+    border-color: var(--header);
+  }
+  .rec-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+  }
+  .rec-rank {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-muted);
+    width: 14px;
+  }
+  .rec-name { flex: 1; font-size: 10px; color: var(--text-main); font-weight: 600; }
+  .rec-reason { font-size: 9px; color: var(--text-muted); }
+
+  /* Investor flow */
+  .flow-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 4px;
+  }
+  .flow-box {
+    background: #F8F9FC;
+    border-radius: 7px;
+    padding: 6px;
+    text-align: center;
+  }
+  .flow-box label { display: block; font-size: 9px; color: var(--text-muted); margin-bottom: 2px; }
+  .flow-box span { font-size: 11px; font-weight: 700; font-family: var(--mono); }
+
+  /* Heatmap (안 C) */
+  .heatmap {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 3px;
+    margin-top: 4px;
+  }
+  .heat-cell {
+    border-radius: 4px;
+    padding: 4px 3px;
+    text-align: center;
+    font-size: 8px;
+    font-weight: 600;
+    color: white;
+  }
+
+  /* Scroll indicator */
+  .scroll-more {
+    text-align: center;
+    font-size: 10px;
+    color: var(--text-muted);
+    padding: 4px 0 2px;
+    flex-shrink: 0;
+  }
+
+  /* Sections legend below phone */
+  .section-list {
+    width: 100%;
+    background: #16181F;
+    border-radius: 12px;
+    padding: 14px 16px;
+    border: 1px solid #2A2D3A;
+  }
+  .section-list-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #78909C;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+  .section-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid #1F2230;
+  }
+  .section-row:last-child { border-bottom: none; }
+  .section-num {
+    font-size: 10px;
+    font-family: var(--mono);
+    font-weight: 700;
+    color: #455A64;
+    width: 18px;
+    flex-shrink: 0;
+  }
+  .section-name {
+    flex: 1;
+    font-size: 11px;
+    color: #B0BEC5;
+  }
+  .section-tag {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 10px;
+  }
+  .tag-existing { background: #1F2D3D; color: #4FC3F7; }
+  .tag-new { background: #1B3A1F; color: #81C784; }
+  .tag-improved { background: #3D3000; color: #FFD54F; }
+  .tag-removed { background: #3D1515; color: #EF9A9A; }
+
+  /* Diff summary */
+  .diff-summary {
+    width: 100%;
+    background: #16181F;
+    border-radius: 10px;
+    padding: 10px 14px;
+    border: 1px solid #2A2D3A;
+    font-size: 11px;
+    color: #90A4AE;
+    line-height: 1.7;
+  }
+  .diff-summary strong { color: #CFD8DC; }
+
+  /* Regime badge */
+  .regime-badge {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: #E3F2FD;
+    color: #1565C0;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-title">Stock v1 — 홈 화면 3안 비교 시안</div>
+<div class="page-sub">상단 60%에 표시된 내용 = 스크롤 없이 보이는 영역 · 초록 테두리 = 신규 · 노랑 테두리 = 개선</div>
+
+<div class="approaches">
+
+  <!-- ══════════ 안 A ══════════ -->
+  <div class="approach-col">
+    <div class="approach-label label-a">안 A</div>
+    <div class="approach-title">핵심 보강 (권장)</div>
+
+    <div class="phone">
+      <div class="phone-screen">
+        <!-- Status bar -->
+        <div class="status-bar">
+          <span class="status-time">09:32</span>
+          <div class="status-icons">
+            <span>●●●</span><span>WiFi</span><span>85%</span>
+          </div>
+        </div>
+        <!-- App bar -->
+        <div class="app-bar">
+          <span class="app-bar-title">홈</span>
+          <span class="app-bar-icon">↺</span>
+        </div>
+
+        <div class="scroll-area">
+          <!-- Briefing -->
+          <div class="briefing">
+            <span class="briefing-icon">💡</span>코스피 하락 출발 예상, 외국인 매도 지속 중. Gate 조건부 진입.
+          </div>
+
+          <!-- Account -->
+          <div class="card">
+            <div class="section-title">내 계좌</div>
+            <div class="account-big">52,847,300원</div>
+            <div class="account-row">
+              <div class="account-item">
+                <label>평가손익</label>
+                <span class="up">+347,200원 (+0.66%)</span>
+              </div>
+              <div class="account-item" style="text-align:right">
+                <label>현금</label>
+                <span class="muted">12,450,000원</span>
+              </div>
+            </div>
+            <div class="account-row" style="margin-top:6px; background:#F8F9FC; border-radius:7px; padding:5px 7px;">
+              <div class="account-item">
+                <label>예수금</label>
+                <span class="muted" style="font-family:var(--mono)">12,450,000원</span>
+              </div>
+              <div class="account-item" style="text-align:right">
+                <label>매수가능</label>
+                <span class="green" style="font-family:var(--mono)">11,200,000원</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- AutoTrade -->
+          <div class="card">
+            <div class="section-title">자동매매</div>
+            <div class="autotrade-row">
+              <div style="display:flex;gap:4px;flex-wrap:wrap">
+                <span class="chip chip-on">● 실행 중</span>
+                <span class="chip chip-demo">DEMO</span>
+                <span class="chip chip-gate-on">Gate ON</span>
+              </div>
+              <span style="font-size:10px;color:var(--text-muted)">예약 2건</span>
+            </div>
+            <div class="autotrade-stats">
+              <div class="stat-box"><label>수익률</label><span class="up">+4.2%</span></div>
+              <div class="stat-box"><label>승률</label><span>68%</span></div>
+              <div class="stat-box"><label>체결</label><span>12건</span></div>
+            </div>
+          </div>
+
+          <!-- Trade feed (improved) -->
+          <div class="card improved">
+            <div class="section-title">오늘 체결 요약 <span class="badge-improved">개선</span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;padding:5px 7px;background:#F8F9FC;border-radius:7px;">
+              <div><label style="font-size:9px;color:var(--text-muted);display:block">총 체결</label><span style="font-size:12px;font-weight:700;font-family:var(--mono)">5건</span></div>
+              <div style="text-align:right"><label style="font-size:9px;color:var(--text-muted);display:block">실현손익</label><span class="up" style="font-size:12px;font-weight:700;font-family:var(--mono)">+83,200원</span></div>
+            </div>
+            <div class="trade-item"><div class="trade-dot trade-dot-buy"></div><span class="trade-name">삼성전자 매수</span><span class="trade-pnl muted">09:05</span></div>
+            <div class="trade-item"><div class="trade-dot trade-dot-sell"></div><span class="trade-name">카카오 매도</span><span class="trade-pnl up">+42,000원</span></div>
+            <div class="trade-item"><div class="trade-dot trade-dot-sell"></div><span class="trade-name">현대차 매도</span><span class="trade-pnl up">+41,200원</span></div>
+          </div>
+
+          <!-- Market indices -->
+          <div class="card">
+            <div class="section-title">시장 지표</div>
+            <div class="index-row">
+              <div class="index-box">
+                <div class="index-label">코스피</div>
+                <div class="index-value">2,634</div>
+                <div class="index-change down">▼ 0.42%</div>
+              </div>
+              <div class="index-box">
+                <div class="index-label">코스닥</div>
+                <div class="index-value">842</div>
+                <div class="index-change down">▼ 0.81%</div>
+              </div>
+              <div class="index-box">
+                <div class="index-label">원/달러</div>
+                <div class="index-value">1,382</div>
+                <div class="index-change up">▲ 0.23%</div>
+              </div>
+            </div>
+            <div class="regime-badge">📊 약세장 · Gate 조건부</div>
+            <div class="temp-bar"><div class="temp-needle"></div></div>
+            <div class="temp-labels"><span>공포</span><span>중립</span><span>탐욕</span></div>
+          </div>
+
+          <div class="scroll-more">▼ 아래로 스크롤 — 보유 종목 · 추천 · 수급 · 관심 · 캘린더 · 뉴스</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section list -->
+    <div class="section-list">
+      <div class="section-list-title">전체 섹션 구성</div>
+      <div class="section-row"><span class="section-num">0</span><span class="section-name">한줄 브리핑</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">1</span><span class="section-name">내 계좌 + <b>예수금/매수가능</b></span><span class="section-tag tag-improved">개선</span></div>
+      <div class="section-row"><span class="section-num">2</span><span class="section-name">자동매매 상태</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">2b</span><span class="section-name">오늘 체결 요약 (헤더 추가)</span><span class="section-tag tag-improved">개선</span></div>
+      <div class="section-row"><span class="section-num">3</span><span class="section-name">시장 지표</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">4</span><span class="section-name">보유 종목 현황 (종목별 손익)</span><span class="section-tag tag-new">신규</span></div>
+      <div class="section-row"><span class="section-num">5</span><span class="section-name">오늘의 추천</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">6</span><span class="section-name">투자자 수급 현황</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">7</span><span class="section-name">관심 종목</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">8</span><span class="section-name">수익 캘린더</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">9</span><span class="section-name">주요 뉴스</span><span class="section-tag tag-existing">유지</span></div>
+    </div>
+
+    <div class="diff-summary">
+      <strong>변경 요약</strong><br>
+      신규 1개 · 개선 2개 · 유지 8개<br>
+      서버 신규 API: <strong>없음</strong> (기존 account.positions 재활용)<br>
+      스크롤 증가: 약 <strong>+1.5 카드</strong>
+    </div>
+  </div>
+
+
+  <!-- ══════════ 안 B ══════════ -->
+  <div class="approach-col">
+    <div class="approach-label label-b">안 B</div>
+    <div class="approach-title">섹션 재배치 + 보강</div>
+
+    <div class="phone">
+      <div class="phone-screen">
+        <div class="status-bar">
+          <span class="status-time">09:32</span>
+          <div class="status-icons"><span>●●●</span><span>WiFi</span><span>85%</span></div>
+        </div>
+        <div class="app-bar">
+          <span class="app-bar-title">홈</span>
+          <span class="app-bar-icon">↺</span>
+        </div>
+
+        <div class="scroll-area">
+          <!-- Briefing -->
+          <div class="briefing">
+            <span class="briefing-icon">💡</span>코스피 하락 출발 예상, 외국인 매도 지속 중. Gate 조건부 진입.
+          </div>
+
+          <!-- Market indices — 최상단으로 이동 -->
+          <div class="card improved">
+            <div class="section-title">시장 지표 <span class="badge-improved">순서 변경</span></div>
+            <div class="index-row">
+              <div class="index-box">
+                <div class="index-label">코스피</div>
+                <div class="index-value">2,634</div>
+                <div class="index-change down">▼ 0.42%</div>
+              </div>
+              <div class="index-box">
+                <div class="index-label">코스닥</div>
+                <div class="index-value">842</div>
+                <div class="index-change down">▼ 0.81%</div>
+              </div>
+              <div class="index-box">
+                <div class="index-label">원/달러</div>
+                <div class="index-value">1,382</div>
+                <div class="index-change up">▲ 0.23%</div>
+              </div>
+            </div>
+            <div class="regime-badge">📊 약세장 · Gate 조건부</div>
+            <div class="temp-bar"><div class="temp-needle"></div></div>
+            <div class="temp-labels"><span>공포</span><span>중립</span><span>탐욕</span></div>
+          </div>
+
+          <!-- AutoTrade -->
+          <div class="card">
+            <div class="section-title">자동매매</div>
+            <div class="autotrade-row">
+              <div style="display:flex;gap:4px;flex-wrap:wrap">
+                <span class="chip chip-on">● 실행 중</span>
+                <span class="chip chip-demo">DEMO</span>
+                <span class="chip chip-gate-on">Gate ON</span>
+              </div>
+              <span style="font-size:10px;color:var(--text-muted)">예약 2건</span>
+            </div>
+            <div class="autotrade-stats">
+              <div class="stat-box"><label>수익률</label><span class="up">+4.2%</span></div>
+              <div class="stat-box"><label>승률</label><span>68%</span></div>
+              <div class="stat-box"><label>체결</label><span>12건</span></div>
+            </div>
+          </div>
+
+          <!-- Holdings (NEW) — 자동매매 바로 아래 -->
+          <div class="card new">
+            <div class="section-title">보유 종목 현황 <span class="badge-new">신규</span></div>
+            <div class="holding-item">
+              <div class="holding-ticker">005930</div>
+              <div class="holding-name">삼성전자</div>
+              <div style="text-align:right">
+                <div class="holding-pnl up">+112,000원</div>
+                <div class="holding-pct up">+1.48%</div>
+              </div>
+            </div>
+            <div class="holding-item">
+              <div class="holding-ticker">035420</div>
+              <div class="holding-name">NAVER</div>
+              <div style="text-align:right">
+                <div class="holding-pnl down">-48,000원</div>
+                <div class="holding-pct down">-0.92%</div>
+              </div>
+            </div>
+            <div class="holding-item">
+              <div class="holding-ticker">035720</div>
+              <div class="holding-name">카카오</div>
+              <div style="text-align:right">
+                <div class="holding-pnl up">+84,000원</div>
+                <div class="holding-pct up">+2.04%</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Account — 보유 종목 아래로 이동 -->
+          <div class="card improved">
+            <div class="section-title">내 계좌 <span class="badge-improved">순서 변경</span></div>
+            <div class="account-big">52,847,300원</div>
+            <div class="account-row">
+              <div class="account-item">
+                <label>평가손익</label>
+                <span class="up">+347,200원 (+0.66%)</span>
+              </div>
+              <div class="account-item" style="text-align:right">
+                <label>매수가능</label>
+                <span class="green" style="font-family:var(--mono)">11,200,000원</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="scroll-more">▼ 체결 요약 · 추천 · 수급 · 관심 · 캘린더 · 뉴스</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section list -->
+    <div class="section-list">
+      <div class="section-list-title">전체 섹션 구성</div>
+      <div class="section-row"><span class="section-num">0</span><span class="section-name">한줄 브리핑</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">1</span><span class="section-name">시장 지표 (최상단 이동)</span><span class="section-tag tag-improved">재배치</span></div>
+      <div class="section-row"><span class="section-num">2</span><span class="section-name">자동매매 상태</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">3</span><span class="section-name">보유 종목 현황 (종목별 손익)</span><span class="section-tag tag-new">신규</span></div>
+      <div class="section-row"><span class="section-num">4</span><span class="section-name">내 계좌 + 예수금/매수가능</span><span class="section-tag tag-improved">재배치+개선</span></div>
+      <div class="section-row"><span class="section-num">5</span><span class="section-name">오늘 체결 요약 (헤더 추가)</span><span class="section-tag tag-improved">개선</span></div>
+      <div class="section-row"><span class="section-num">6</span><span class="section-name">오늘의 추천</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">7</span><span class="section-name">투자자 수급 현황</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">8</span><span class="section-name">관심 종목</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">9</span><span class="section-name">수익 캘린더</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">10</span><span class="section-name">주요 뉴스</span><span class="section-tag tag-existing">유지</span></div>
+    </div>
+
+    <div class="diff-summary">
+      <strong>변경 요약</strong><br>
+      신규 1개 · 재배치 2개 · 개선 2개 · 유지 6개<br>
+      서버 신규 API: <strong>없음</strong><br>
+      스크롤 증가: 약 <strong>+1.5 카드</strong><br>
+      <span style="color:#EF9A9A">⚠ 기존 배치 전면 변경 — 사용자 학습 비용 발생</span>
+    </div>
+  </div>
+
+
+  <!-- ══════════ 안 C ══════════ -->
+  <div class="approach-col">
+    <div class="approach-label label-c">안 C</div>
+    <div class="approach-title">대규모 확장</div>
+
+    <div class="phone">
+      <div class="phone-screen">
+        <div class="status-bar">
+          <span class="status-time">09:32</span>
+          <div class="status-icons"><span>●●●</span><span>WiFi</span><span>85%</span></div>
+        </div>
+        <div class="app-bar">
+          <span class="app-bar-title">홈</span>
+          <span class="app-bar-icon">↺</span>
+        </div>
+
+        <div class="scroll-area">
+          <!-- Briefing -->
+          <div class="briefing">
+            <span class="briefing-icon">💡</span>코스피 하락 출발 예상, 외국인 매도 지속 중. Gate 조건부 진입.
+          </div>
+
+          <!-- Account + Holdings combined -->
+          <div class="card improved">
+            <div class="section-title">내 계좌 + 보유 종목 <span class="badge-improved">통합</span></div>
+            <div class="account-big">52,847,300원</div>
+            <div class="account-row" style="margin-bottom:8px">
+              <div class="account-item">
+                <label>평가손익</label>
+                <span class="up">+347,200원 (+0.66%)</span>
+              </div>
+              <div class="account-item" style="text-align:right">
+                <label>매수가능</label>
+                <span class="green" style="font-family:var(--mono)">11,200,000원</span>
+              </div>
+            </div>
+            <div style="border-top:1px solid var(--border);padding-top:7px">
+              <div class="holding-item"><div class="holding-ticker">005930</div><div class="holding-name">삼성전자</div><div style="text-align:right"><div class="holding-pnl up">+112,000원</div><div class="holding-pct up">+1.48%</div></div></div>
+              <div class="holding-item"><div class="holding-ticker">035420</div><div class="holding-name">NAVER</div><div style="text-align:right"><div class="holding-pnl down">-48,000원</div><div class="holding-pct down">-0.92%</div></div></div>
+            </div>
+          </div>
+
+          <!-- AutoTrade -->
+          <div class="card">
+            <div class="section-title">자동매매</div>
+            <div class="autotrade-row">
+              <div style="display:flex;gap:4px"><span class="chip chip-on">● 실행 중</span><span class="chip chip-demo">DEMO</span><span class="chip chip-gate-on">Gate ON</span></div>
+            </div>
+            <div class="autotrade-stats">
+              <div class="stat-box"><label>수익률</label><span class="up">+4.2%</span></div>
+              <div class="stat-box"><label>승률</label><span>68%</span></div>
+              <div class="stat-box"><label>체결</label><span>12건</span></div>
+            </div>
+          </div>
+
+          <!-- Market + Heatmap -->
+          <div class="card new">
+            <div class="section-title">시장 지표 + 업종 히트맵 <span class="badge-new">신규</span></div>
+            <div class="index-row" style="margin-bottom:6px">
+              <div class="index-box"><div class="index-label">코스피</div><div class="index-value">2,634</div><div class="index-change down">▼ 0.42%</div></div>
+              <div class="index-box"><div class="index-label">코스닥</div><div class="index-value">842</div><div class="index-change down">▼ 0.81%</div></div>
+            </div>
+            <div class="heatmap">
+              <div class="heat-cell" style="background:#C62828">반도체<br>-1.2%</div>
+              <div class="heat-cell" style="background:#1565C0">바이오<br>-0.4%</div>
+              <div class="heat-cell" style="background:#1B5E20">2차전지<br>+0.8%</div>
+              <div class="heat-cell" style="background:#B71C1C">금융<br>-0.9%</div>
+              <div class="heat-cell" style="background:#2E7D32">에너지<br>+1.1%</div>
+              <div class="heat-cell" style="background:#1565C0">IT<br>-0.3%</div>
+              <div class="heat-cell" style="background:#4E342E">자동차<br>-0.1%</div>
+              <div class="heat-cell" style="background:#1A237E">통신<br>-0.6%</div>
+            </div>
+          </div>
+
+          <!-- Volume surge -->
+          <div class="card new">
+            <div class="section-title">거래량 급등 <span class="badge-new">신규</span></div>
+            <div class="trade-item"><div class="trade-dot" style="background:#FF8F00"></div><span class="trade-name">에코프로비엠</span><span style="font-size:9px;font-family:var(--mono);color:var(--up)">거래량 ×12.4</span></div>
+            <div class="trade-item"><div class="trade-dot" style="background:#FF8F00"></div><span class="trade-name">포스코퓨처엠</span><span style="font-size:9px;font-family:var(--mono);color:var(--up)">거래량 ×8.1</span></div>
+          </div>
+
+          <div class="scroll-more">▼ 52주 신고가 · 추천 · 수급 · 관심 · 배당일정 · 캘린더 · 뉴스</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section list -->
+    <div class="section-list">
+      <div class="section-list-title">전체 섹션 구성</div>
+      <div class="section-row"><span class="section-num">0</span><span class="section-name">한줄 브리핑</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">1</span><span class="section-name">내 계좌 + 보유 종목 (통합)</span><span class="section-tag tag-improved">통합</span></div>
+      <div class="section-row"><span class="section-num">2</span><span class="section-name">자동매매 상태</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">3</span><span class="section-name">시장 지표 + 업종 히트맵</span><span class="section-tag tag-new">신규</span></div>
+      <div class="section-row"><span class="section-num">4</span><span class="section-name">거래량 급등 종목</span><span class="section-tag tag-new">신규</span></div>
+      <div class="section-row"><span class="section-num">5</span><span class="section-name">52주 신고가/신저가</span><span class="section-tag tag-new">신규</span></div>
+      <div class="section-row"><span class="section-num">6</span><span class="section-name">오늘의 추천</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">7</span><span class="section-name">투자자 수급 현황</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">8</span><span class="section-name">관심 종목</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">9</span><span class="section-name">배당/권리락 일정</span><span class="section-tag tag-new">신규</span></div>
+      <div class="section-row"><span class="section-num">10</span><span class="section-name">수익 캘린더</span><span class="section-tag tag-existing">유지</span></div>
+      <div class="section-row"><span class="section-num">11</span><span class="section-name">주요 뉴스</span><span class="section-tag tag-existing">유지</span></div>
+    </div>
+
+    <div class="diff-summary">
+      <strong>변경 요약</strong><br>
+      신규 4개 · 통합/개선 2개 · 유지 6개<br>
+      서버 신규 API: <strong>5~6개 필요</strong><br>
+      (업종 히트맵, 거래량 급등, 52주 고저, 배당 일정)<br>
+      스크롤 증가: 약 <strong>+5 카드</strong><br>
+      <span style="color:#EF9A9A">⚠ 구현 범위 큼 · 검증 부담 높음</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<div style="text-align:center;margin-top:40px;color:#37474F;font-size:12px">
+  Stock v1 · 홈 화면 시안 · 2026-03-27 · 초록 테두리 = 신규 섹션 · 노랑 테두리 = 개선/재배치
+</div>
+
+</body>
+</html>

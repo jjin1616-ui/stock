@@ -2384,9 +2384,9 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
         }
     }
 
-    private suspend fun loadAccount() {
+    private suspend fun loadAccount(fast: Boolean = true) {
         accountMutex.withLock {
-            repository.getAutoTradeBootstrap(fast = true).onSuccess { boot ->
+            repository.getAutoTradeBootstrap(fast = fast).onSuccess { boot ->
                 sectionErrorState.remove("account")
                 boot.account?.let { accountState.value = it }
                 boot.settings?.settings?.let { s ->
@@ -2395,6 +2395,18 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
                 }
             }.onFailure {
                 if (accountState.value == null) sectionErrorState["account"] = "계좌 정보를 불러올 수 없습니다"
+            }
+            // UNAVAILABLE이면 2초 후 fast=false로 재시도 (캐시 우회 → 브로커 라이브 조회)
+            if (fast && accountState.value?.source == "UNAVAILABLE") {
+                delay(2_000L)
+                repository.getAutoTradeBootstrap(fast = false).onSuccess { boot ->
+                    sectionErrorState.remove("account")
+                    boot.account?.let { accountState.value = it }
+                    boot.settings?.settings?.let { s ->
+                        autoTradeEnabledState.value = s.enabled
+                        autoTradeEnvState.value = s.environment
+                    }
+                }
             }
             repository.getAutoTradeReservations(status = "PENDING").onSuccess { res ->
                 reservationCountState.value = res.total ?: 0
@@ -2472,9 +2484,9 @@ class HomeViewModel(private val repository: StockRepository) : ViewModel() {
                     loadMarketIndices()
                     loadInvestorFlow()
                 }
-                // UNAVAILABLE 상태면 계좌 재시도
+                // UNAVAILABLE 상태면 fast=false로 재시도 (캐시 우회)
                 if (accountState.value?.source == "UNAVAILABLE") {
-                    loadAccount()
+                    loadAccount(fast = false)
                 }
                 delay(30_000L)
             }

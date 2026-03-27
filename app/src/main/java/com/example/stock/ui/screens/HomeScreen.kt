@@ -227,7 +227,7 @@ fun HomeScreen() {
 
             // ── 5. 투자자 수급 ──
             item {
-                HomeSectionCard(title = "투자자 수급 현황") {
+                HomeSectionCard(title = "투자자 수급 현황", onRefresh = { vm.refreshInvestorFlow() }) {
                     val supplyErr = sectionErrors["supply"]
                     if (investorFlow != null) {
                         InvestorFlowCard(flow = investorFlow)
@@ -634,7 +634,7 @@ private fun NewsClusterRow(cluster: NewsClusterListItemDto) {
 // 공통 컴포넌트
 // ─────────────────────────────────────────────────
 @Composable
-private fun HomeSectionCard(title: String, content: @Composable () -> Unit) {
+private fun HomeSectionCard(title: String, onRefresh: (() -> Unit)? = null, content: @Composable () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -644,12 +644,31 @@ private fun HomeSectionCard(title: String, content: @Composable () -> Unit) {
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-            Text(
-                text = title,
-                color = TextMain,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = title,
+                    color = TextMain,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                if (onRefresh != null) {
+                    androidx.compose.material3.IconButton(
+                        onClick = onRefresh,
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        androidx.compose.material3.Icon(
+                            painter = androidx.compose.ui.res.painterResource(id = com.example.stock.R.drawable.ic_action_refresh),
+                            contentDescription = "새로고침",
+                            tint = TextMuted,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            }
             Spacer(Modifier.height(12.dp))
             content()
         }

@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=390, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Stock v1 — 홈2 목업 (라이트)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F7F8FA;
+    --card-bg: #FFFFFF;
+    --card-border: #E8EBF0;
+    --card-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
+    --text-primary: #1A1D26;
+    --text-secondary: #5A6070;
+    --text-tertiary: #8E95A4;
+    --up: #D32F2F;
+    --up-bg: rgba(211,47,47,0.06);
+    --down: #1565C0;
+    --down-bg: rgba(21,101,192,0.06);
+    --flat: #8E95A4;
+    --accent: #2D5BFF;
+    --accent-bg: rgba(45,91,255,0.06);
+    --green: #00897B;
+    --green-bg: rgba(0,137,123,0.08);
+    --orange: #E65100;
+    --orange-bg: rgba(230,81,0,0.08);
+    --divider: #F0F1F4;
+    --tab-active: #2D5BFF;
+    --tab-inactive: #B0B5C3;
+    --briefing-bg: #EEF3FF;
+    --briefing-border: #D4DFFF;
+    --radius: 14px;
+    --radius-sm: 8px;
+    --gap: 10px;
+    --font-body: 'IBM Plex Sans KR', -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--font-body);
+    background: #E5E5E5;
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+  }
+  .phone {
+    width: 390px; margin: 0 auto;
+    background: var(--bg); position: relative;
+    border-radius: 0;
+    overflow: hidden; padding-bottom: 80px;
+  }
+  /* Status bar */
+  .status-bar {
+    height: 54px; padding: 14px 28px 0;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 15px; font-weight: 600; font-family: var(--font-mono);
+    background: var(--card-bg);
+  }
+  /* Top bar */
+  .top-bar {
+    background: var(--card-bg); padding: 8px 20px 12px;
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid var(--divider);
+  }
+  .top-bar h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+  .top-bar-btn {
+    width: 36px; height: 36px; border-radius: 50%; border: none;
+    background: var(--bg); display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  /* Content */
+  .content {
+    padding: 10px 16px 20px; display: flex; flex-direction: column; gap: var(--gap);
+    overflow-y: auto; scroll-behavior: smooth;
+  }
+  .content::-webkit-scrollbar { display: none; }
+  /* Briefing */
+  .briefing {
+    background: var(--briefing-bg); border: 1px solid var(--briefing-border);
+    border-radius: var(--radius); padding: 12px 14px;
+    display: flex; align-items: flex-start; gap: 8px;
+  }
+  .briefing-icon {
+    width: 20px; height: 20px; background: var(--accent); border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    color: white; font-size: 10px; font-weight: 700; margin-top: 1px;
+  }
+  .briefing-text { font-size: 13px; line-height: 1.5; color: #2D4175; }
+  /* Card */
+  .card {
+    background: var(--card-bg); border-radius: var(--radius);
+    border: 1px solid var(--card-border); box-shadow: var(--card-shadow); overflow: hidden;
+  }
+  .card-inner { padding: 16px; }
+  .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .card-title { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
+  .card-sub { font-size: 11px; color: var(--text-tertiary); }
+  .card-action { font-size: 12px; color: var(--accent); font-weight: 500; border: none; background: none; cursor: pointer; }
+  .card-divider { height: 1px; background: var(--divider); margin: 12px 0; }
+  /* Account */
+  .acct-hero { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+  .acct-label { font-size: 12px; color: var(--text-tertiary); margin-bottom: 4px; }
+  .acct-total { font-size: 26px; font-weight: 700; font-family: var(--font-mono); letter-spacing: -1px; line-height: 1.1; }
+  .acct-pnl { text-align: right; }
+  .acct-pnl-val { font-size: 16px; font-weight: 700; font-family: var(--font-mono); letter-spacing: -0.5px; }
+  .acct-pnl-pct { font-size: 12px; font-family: var(--font-mono); font-weight: 500; margin-top: 1px; }
+  .acct-row { display: flex; gap: 12px; }
+  .acct-metric { flex: 1; background: var(--bg); border-radius: var(--radius-sm); padding: 10px 12px; }
+  .acct-metric-label { font-size: 11px; color: var(--text-tertiary); margin-bottom: 3px; }
+  .acct-metric-val { font-size: 14px; font-weight: 600; font-family: var(--font-mono); letter-spacing: -0.3px; }
+  .pos-toggle { display: flex; justify-content: space-between; align-items: center; padding: 10px 0 0; cursor: pointer; }
+  .pos-toggle-label { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+  .pos-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--divider); }
+  .pos-item:last-child { border-bottom: none; }
+  .pos-name { font-size: 14px; font-weight: 600; margin-bottom: 2px; letter-spacing: -0.2px; }
+  .pos-detail { font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); }
+  .pos-pnl { text-align: right; }
+  .pos-pnl-val { font-size: 14px; font-weight: 600; font-family: var(--font-mono); letter-spacing: -0.3px; }
+  .pos-pnl-pct { font-size: 11px; font-family: var(--font-mono); font-weight: 500; margin-top: 1px; }
+  /* Chips */
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .chip-active { background: var(--green-bg); color: var(--green); }
+  .chip-env { background: var(--accent-bg); color: var(--accent); }
+  .chip-gate-on { background: var(--green-bg); color: var(--green); }
+  .chip-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .metrics-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 2px; background: var(--bg); border-radius: var(--radius-sm); overflow: hidden; }
+  .m-cell { background: var(--card-bg); padding: 10px 6px; text-align: center; }
+  .m-label { font-size: 10px; color: var(--text-tertiary); margin-bottom: 4px; }
+  .m-val { font-size: 14px; font-weight: 700; font-family: var(--font-mono); letter-spacing: -0.5px; }
+  .m-sub { font-size: 10px; color: var(--text-tertiary); margin-top: 8px; }
+  /* Feed */
+  .feed-summary { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .feed-main { display: flex; align-items: baseline; gap: 8px; }
+  .feed-count { font-size: 13px; font-weight: 600; }
+  .feed-pnl { font-size: 15px; font-weight: 700; font-family: var(--font-mono); letter-spacing: -0.5px; }
+  .feed-bd { font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); }
+  .feed-item { display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--divider); gap: 10px; }
+  .feed-item:last-child { border-bottom: none; }
+  .feed-time { font-size: 11px; font-family: var(--font-mono); color: var(--text-tertiary); width: 38px; flex-shrink: 0; }
+  .feed-side { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; }
+  .feed-side.buy { background: var(--up-bg); color: var(--up); }
+  .feed-side.sell { background: var(--down-bg); color: var(--down); }
+  .feed-info { flex: 1; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .feed-result { font-size: 12px; font-family: var(--font-mono); font-weight: 600; flex-shrink: 0; letter-spacing: -0.3px; }
+  /* Indices */
+  .idx-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .idx-card { background: var(--bg); border-radius: var(--radius-sm); padding: 12px; }
+  .idx-name { font-size: 11px; color: var(--text-tertiary); font-weight: 500; margin-bottom: 4px; }
+  .idx-val { font-size: 18px; font-weight: 700; font-family: var(--font-mono); letter-spacing: -0.5px; margin-bottom: 2px; }
+  .idx-chg { font-size: 12px; font-family: var(--font-mono); font-weight: 500; }
+  .regime-row { display: flex; justify-content: space-between; align-items: center; }
+  .regime-badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; background: var(--up-bg); color: var(--up); }
+  .temp { display: flex; align-items: center; gap: 6px; }
+  .temp-bar { width: 80px; height: 6px; border-radius: 3px; background: linear-gradient(90deg,var(--down) 0%,var(--flat) 50%,var(--up) 100%); position: relative; }
+  .temp-marker { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: var(--up); border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.2); top: -2px; left: 72%; transform: translateX(-50%); }
+  .temp-val { font-size: 13px; font-weight: 700; font-family: var(--font-mono); color: var(--up); }
+  /* Surge */
+  .surge-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--divider); }
+  .surge-item:last-child { border-bottom: none; }
+  .surge-name { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+  .surge-ratio { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 700; color: var(--orange); background: var(--orange-bg); padding: 2px 6px; border-radius: 4px; }
+  .surge-price { font-size: 14px; font-weight: 600; font-family: var(--font-mono); letter-spacing: -0.3px; }
+  .surge-chg { font-size: 11px; font-family: var(--font-mono); font-weight: 500; }
+  /* 52w */
+  .w-tabs { display: flex; gap: 0; margin-bottom: 12px; background: var(--bg); border-radius: var(--radius-sm); padding: 3px; }
+  .w-tab { flex: 1; text-align: center; padding: 6px 0; font-size: 12px; font-weight: 600; border-radius: 6px; border: none; background: none; color: var(--text-tertiary); cursor: pointer; }
+  .w-tab.active { background: var(--card-bg); color: var(--up); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .w-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--divider); }
+  .w-item:last-child { border-bottom: none; }
+  .w-name { font-size: 13px; font-weight: 600; }
+  .w-curr { font-size: 14px; font-weight: 700; font-family: var(--font-mono); letter-spacing: -0.3px; }
+  .w-prev { font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); }
+  /* Rec */
+  .rec-group { font-size: 11px; font-weight: 700; color: var(--text-tertiary); letter-spacing: 0.5px; margin-bottom: 8px; }
+  .rec-item { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; }
+  .rec-rank { width: 20px; height: 20px; border-radius: 50%; background: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--text-secondary); flex-shrink: 0; margin-top: 1px; }
+  .rec-name { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+  .rec-reason { font-size: 11px; color: var(--text-tertiary); line-height: 1.4; }
+  /* Flow */
+  .flow-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 12px; }
+  .flow-cell { text-align: center; padding: 10px 4px; background: var(--bg); border-radius: var(--radius-sm); }
+  .flow-label { font-size: 11px; color: var(--text-tertiary); margin-bottom: 4px; }
+  .flow-val { font-size: 15px; font-weight: 700; font-family: var(--font-mono); letter-spacing: -0.5px; }
+  .flow-sub { font-size: 10px; color: var(--text-tertiary); font-family: var(--font-mono); margin-top: 3px; }
+  .spark-row { display: flex; align-items: center; gap: 8px; }
+  .spark-label { font-size: 11px; color: var(--text-tertiary); white-space: nowrap; }
+  /* Favorites */
+  .fav-scroll { display: flex; gap: 8px; overflow-x: auto; margin: 0 -16px; padding: 0 16px 4px; }
+  .fav-scroll::-webkit-scrollbar { display: none; }
+  .fav-card { min-width: 130px; background: var(--bg); border-radius: var(--radius-sm); padding: 12px; flex-shrink: 0; }
+  .fav-name { font-size: 12px; font-weight: 600; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fav-price { font-size: 15px; font-weight: 700; font-family: var(--font-mono); margin-bottom: 2px; letter-spacing: -0.5px; }
+  .fav-chg { font-size: 11px; font-family: var(--font-mono); font-weight: 500; }
+  .fav-more { min-width: 60px; background: var(--bg); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--accent); font-weight: 600; cursor: pointer; flex-shrink: 0; }
+  /* Dividend */
+  .div-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--divider); }
+  .div-item:last-child { border-bottom: none; }
+  .div-date { width: 44px; height: 44px; background: var(--accent-bg); border-radius: var(--radius-sm); display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0; }
+  .div-month { font-size: 9px; font-weight: 600; color: var(--accent); }
+  .div-day { font-size: 16px; font-weight: 700; font-family: var(--font-mono); color: var(--accent); line-height: 1; }
+  .div-info { flex: 1; }
+  .div-name { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+  .div-detail { font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); }
+  .div-yield { font-size: 13px; font-weight: 700; font-family: var(--font-mono); color: var(--accent); }
+  /* Calendar */
+  .cal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .cal-month { font-size: 14px; font-weight: 600; }
+  .cal-total { font-size: 14px; font-weight: 700; font-family: var(--font-mono); letter-spacing: -0.3px; }
+  .cal-weekdays, .cal-days { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; }
+  .cal-weekdays { margin-bottom: 4px; }
+  .cal-wd { text-align: center; font-size: 10px; color: var(--text-tertiary); font-weight: 500; padding: 4px 0; }
+  .cal-d { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 6px; font-size: 11px; font-weight: 500; }
+  .cal-d.empty { background: transparent; }
+  .cal-d-num { font-size: 11px; line-height: 1; }
+  .cal-d-pnl { font-size: 7px; font-family: var(--font-mono); font-weight: 600; margin-top: 1px; }
+  .cal-d.pos { background: var(--up-bg); color: var(--up); }
+  .cal-d.neg { background: var(--down-bg); color: var(--down); }
+  .cal-d.today { outline: 2px solid var(--accent); outline-offset: -1px; }
+  /* News */
+  .news-item { padding: 10px 0; border-bottom: 1px solid var(--divider); }
+  .news-item:last-child { border-bottom: none; }
+  .news-meta { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+  .news-tag { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: var(--accent-bg); color: var(--accent); }
+  .news-time { font-size: 10px; color: var(--text-tertiary); font-family: var(--font-mono); }
+  .news-title { font-size: 13px; font-weight: 500; line-height: 1.4; }
+  /* Tab bar */
+  .tab-bar {
+    position: sticky; bottom: 0; left: 0; right: 0; height: 80px;
+    background: var(--card-bg); border-top: 1px solid var(--card-border);
+    display: flex; justify-content: space-around; align-items: flex-start;
+    padding-top: 8px; padding-bottom: 20px;
+  }
+  .tab-item { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 52px; cursor: pointer; }
+  .tab-label { font-size: 10px; font-weight: 500; color: var(--tab-inactive); }
+  .tab-item.active .tab-label { color: var(--tab-active); font-weight: 700; }
+  .tab-item.active svg { stroke: var(--tab-active); }
+  .tab-item:not(.active) svg { stroke: var(--tab-inactive); }
+  /* Utility */
+  /* Heatmap */
+  .heatmap-grid {
+    display: grid;
+    grid-template-columns: 2fr 1.5fr 1fr;
+    grid-template-rows: auto auto auto;
+    gap: 3px;
+    min-height: 180px;
+  }
+  .heatmap-cell {
+    border-radius: 6px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 50px;
+    position: relative;
+    overflow: hidden;
+  }
+  .heatmap-cell.big { grid-row: span 2; }
+  .heatmap-name {
+    font-size: 11px;
+    font-weight: 700;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    margin-bottom: 2px;
+  }
+  .heatmap-pct {
+    font-size: 13px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: white;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  }
+  .hm-up-5 { background: #B71C1C; }
+  .hm-up-4 { background: #C62828; }
+  .hm-up-3 { background: #D32F2F; }
+  .hm-up-2 { background: #E53935; }
+  .hm-up-1 { background: #EF5350; }
+  .hm-dn-1 { background: #42A5F5; }
+  .hm-dn-2 { background: #1E88E5; }
+  .hm-dn-3 { background: #1565C0; }
+  .hm-dn-4 { background: #0D47A1; }
+  .hm-flat { background: #9E9E9E; }
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="status-bar"><span>9:41</span><span style="font-size:12px">●●● ▐█▌</span></div>
+  <div class="top-bar">
+    <h1>홈2</h1>
+    <div style="display:flex;gap:8px">
+      <button class="top-bar-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5A6070" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></button>
+      <button class="top-bar-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5A6070" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M1 20V10l20-6"/></svg></button>
+    </div>
+  </div>
+  <div class="content">
+
+    <!-- 0. Briefing -->
+    <div class="briefing">
+      <div class="briefing-icon">AI</div>
+      <div class="briefing-text">코스피 약보합, 외국인 순매수 전환. 반도체·2차전지 주도. 미 증시 강보합 마감, 원/달러 하락세.</div>
+    </div>
+
+    <!-- 1. Account -->
+    <div class="card"><div class="card-inner">
+      <div class="card-header"><span class="card-title">내 계좌</span><span class="card-sub">한국투자증권</span></div>
+      <div class="acct-hero">
+        <div><div class="acct-label">총 평가자산</div><div class="acct-total">45,230,000<span style="font-size:15px;font-weight:400;font-family:var(--font-body)">원</span></div></div>
+        <div class="acct-pnl"><div class="acct-label">평가손익</div><div class="acct-pnl-val up">+1,230,000원</div><div class="acct-pnl-pct up">+2.80%</div></div>
+      </div>
+      <div class="acct-row">
+        <div class="acct-metric"><div class="acct-metric-label">예수금</div><div class="acct-metric-val">12,500,000원</div></div>
+        <div class="acct-metric"><div class="acct-metric-label">매수가능</div><div class="acct-metric-val">10,200,000원</div></div>
+      </div>
+      <div class="card-divider"></div>
+      <div class="pos-toggle"><span class="pos-toggle-label">보유 종목 3개</span><span style="color:var(--text-tertiary)">▼</span></div>
+      <div class="pos-item"><div><div class="pos-name">삼성전자</div><div class="pos-detail">10주 · 평단 72,000</div></div><div class="pos-pnl"><div class="pos-pnl-val up">+180,000원</div><div class="pos-pnl-pct up">+2.50%</div></div></div>
+      <div class="pos-item"><div><div class="pos-name">SK하이닉스</div><div class="pos-detail">5주 · 평단 185,000</div></div><div class="pos-pnl"><div class="pos-pnl-val down">-25,000원</div><div class="pos-pnl-pct down">-2.70%</div></div></div>
+      <div class="pos-item"><div><div class="pos-name">LG에너지솔루션</div><div class="pos-detail">3주 · 평단 380,000</div></div><div class="pos-pnl"><div class="pos-pnl-val up">+45,000원</div><div class="pos-pnl-pct up">+3.95%</div></div></div>
+    </div></div>
+
+    <!-- 2. AutoTrade -->
+    <div class="card"><div class="card-inner">
+      <div class="card-header"><span class="card-title">자동매매</span><button class="card-action">상세 →</button></div>
+      <div class="chips">
+        <span class="chip chip-active"><span class="chip-dot"></span> 실행중</span>
+        <span class="chip chip-env">실전</span>
+        <span class="chip chip-gate-on">진입 허용</span>
+      </div>
+      <div class="metrics-grid">
+        <div class="m-cell"><div class="m-label">수익률</div><div class="m-val up">+3.2%</div></div>
+        <div class="m-cell"><div class="m-label">승률</div><div class="m-val">67%</div></div>
+        <div class="m-cell"><div class="m-label">MDD</div><div class="m-val down">-1.8%</div></div>
+        <div class="m-cell"><div class="m-label">주문</div><div class="m-val">12건</div></div>
+      </div>
+      <div class="m-sub">예약 대기 2건</div>
+    </div></div>
+
+    <!-- 2b. Trade Feed -->
+    <div class="card"><div class="card-inner">
+      <div class="card-header"><span class="card-title">오늘 체결</span></div>
+      <div class="feed-summary">
+        <div class="feed-main"><span class="feed-count">총 5건</span><span class="feed-pnl up">+82,300원</span></div>
+        <span class="feed-bd">매수 3 / 매도 2</span>
+      </div>
+      <div class="feed-item"><span class="feed-time">09:31</span><span class="feed-side buy">매수</span><span class="feed-info">삼성전자 5주 72,100원</span><span class="feed-result"></span></div>
+      <div class="feed-item"><span class="feed-time">10:15</span><span class="feed-side sell">매도</span><span class="feed-info">카카오 10주 52,300원</span><span class="feed-result up">+15,200</span></div>
+      <div class="feed-item"><span class="feed-time">11:02</span><span class="feed-side buy">매수</span><span class="feed-info">NAVER 3주 215,000원</span><span class="feed-result"></span></div>
+    </div></div>
+
+    <!-- 3. Market -->
+    <div class="card"><div class="card-inner">
+      <div class="card-header"><span class="card-title">시장 지표</span><span class="card-sub">실시간</span></div>
+      <div class="idx-grid">
+        <div class="idx-card"><div class="idx-name">코스피</div><div class="idx-val up">2,687.45</div><div class="idx-chg up">▲ +12.30 (+0.46%)</div></div>
+        <div class="idx-card"><div class="idx-name">코스닥</div><div class="idx-val down">871.23</div><div class="idx-chg down">▼ -3.45 (-0.39%)</div></div>
+      </div>
+      <div class="idx-card" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div><div class="idx-name">원/달러</div><div style="display:flex;align-items:baseline;gap:6px"><span class="idx-val down" style="font-size:16px">1,378.50</span><span class="idx-chg down">▼ -5.20</span></div></div></div></div>
+      <div class="regime-row">
+        <div class="regime-badge"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg> 강세</div>
+        <div class="temp"><div class="temp-bar"><div class="temp-marker"></div></div><span class="temp-val">72°</span></div>
+      </div>
+    </div></div>
+
+    <!-- 3b. Sector Heatmap -->
+    <div class="card"><div class="card-inner">
+      <div class="card-header"><span class="card-title">업종별 등락</span><span class="card-sub">거래량 비례</span></div>
+      <div class="heatmap-grid">
+        <div class="heatmap-cell big hm-up-4" style="grid-column:1;grid-row:1/3"><div class="heatmap-name">반도체</div><div class="heatmap-pct">+2.8%</div></div>
+        <div class="heatmap-cell hm-up-3"><div class="heatmap-name">2차전지</div><div class="heatmap-pct">+1.9%</div></div>
+        <div class="heatmap-cell hm-dn-2"><div class="heatmap-name">바이오</div><div class="heatmap-pct">-1.2%</div></div>
+        <div class="heatmap-cell hm-up-1"><div class="heatmap-name">자동차</div><div class="heatmap-pct">+0.7%</div></div>
+        <div class="heatmap-cell hm-dn-1"><div class="heatmap-name">건설</div><div class="heatmap-pct">-0.4%</div></div>
+        <div class="heatmap-cell hm-up-2" style="grid-column:1"><div class="heatmap-name">금융</div><div class="heatmap-pct">+1.3%</div></div>
+        <div class="heatmap-cell hm-flat"><div class="heatmap-name">철강</div><div class="heatmap-pct">0.0%</div></div>
+        <div class="heatmap-cell hm-dn-3"><div class="heatmap-name">유통</div><div class="heatmap-pct">-1.8%</div></div>
+      </div>
+    </div></div>
+
+    <!-- 4. Volume Surge -->
+    <div class="card"><div class="card-inner">
+      <div class="card-header"><span class="card-title">거래량 급등</span><span class="card-sub">vs 20일 평균</span></div>
+      <div class="surge-item"><div><div class="surge-name">한화에어로스페이스</div><span class="surge-ratio">↑ 12.3배</span></div><div style="text-align:right"><div class="surge-price up">285,000</div><div class="surge-chg up">+4.2%</div></div></div>
+      <div class="surge-item"><div><div class="surge-name">두산에너빌리티</div><span class="surge-ratio">↑ 8.7배</span></div><div style="text-align:right"><div class="surge-price up">18,950</div><div class="surge-chg up">+2.1%</div></div></div>
+      <div class="surge-item"><div><div class="surge-name">포스코홀딩스</div><span class="surge-ratio">↑ 6.1배</span></div><div style="text-align:right"><div class="surge-price down">312,000</div><div class="surge-chg down">-0.8%</div></div></div>
+    </div></div>
+
+    <!-- 5. 52-Week -->
+    <div class="card"><div class="card-inner">
+      <div class="card-header"><span class="card-title">52주 신고가/신저가</span></div>
+      <div class="w-tabs"><button class="w-tab active">신고가</button><button class="w-tab">신저가</button></div>
+      <div class="w-item"><div class="w-name">삼성전자</div><div style="text-align:right"><div class="w-curr up">74,200원</div><div class="w-prev">이전 73,800 → <span class="up">신고가</span></div></div></div>
+      <div class="w-item"><div class="w-name">현대차</div><div style="text-align:right"><div class="w-curr up">268,000원</div><div class="w-prev">이전 265,500 → <span class="up">신고가</span></div></div></div>
+    </div></div>
+
+    <!-- 6. Recommendations -->
+    <div class="card"><div class="card-inner">
+      <div class="card-header"><span class="card-title">오늘의 추천</span><button class="card-action">전체보기 →</button></div>
+      <div class="rec-group">단타 TOP 3</div>
+      <div class="rec-item"><span class="rec-rank">1</span><div><div class="rec-name">삼성SDI</div><div class="rec-reason">거래량 급등 + 이격도 확대, 단기 반등 시그널</div></div></div>
+      <div class="rec-item"><span class="rec-rank">2</span><div><div class="rec-name">카카오</div><div class="rec-reason">AI 테마 수급 유입, 5일선 돌파</div></div></div>
+      <div class="rec-item"><span class="rec-rank">3</span><div><div class="rec-name">포스코퓨처엠</div><div class="rec-reason">2차전지 소재 수급 전환, 거래량 5배 급등</div></div></div>
+      <div class="card-divider"></div>
+      <div class="rec-group">장타 TOP 3</div>
+      <div class="rec-item"><span class="rec-rank">1</span><div><div class="rec-name">현대차</div><div class="rec-reason">글로벌 EV 시장점유율 확대, 실적 턴어라운드</div></div></div>
+      <div class="rec-item"><span class="rec-rank">2</span><div><div class="rec-name">NAVER</div><div class="rec-reason">AI 검색 전환 기대, 밸류에이션 매력</div></div></div>
+      <div class="rec-item"><span class="rec-rank">3</span><div><div class="rec-name">삼성바이오로직스</div><div class="rec-reason">CDMO 수주 잔고 사상 최대, 안정적 성장</div></div></div>
+    </div></div>
+
+    <!-- 7. Investor Flow -->
+    <div class="card"><div class="card-inner">
+      <div class="card-header"><span class="card-title">투자자 수급</span><span class="card-sub">코스피 기준</span></div>
+      <div class="flow-grid">
+        <div class="flow-cell"><div class="flow-label">외국인</div><div class="flow-val up">+1,200억</div><div class="flow-sub up">3일 +3,400억</div></div>
+        <div class="flow-cell"><div class="flow-label">기관</div><div class="flow-val up">+800억</div><div class="flow-sub up">3일 +2,100억</div></div>
+        <div class="flow-cell"><div class="flow-label">개인</div><div class="flow-val down">-2,000억</div><div class="flow-sub down">3일 -5,500억</div></div>
+      </div>
+      <div class="spark-row">
+        <span class="spark-label">20일 추세</span>
+        <svg style="flex:1;height:24px" viewBox="0 0 200 24" preserveAspectRatio="none">
+          <polyline points="0,18 15,15 30,16 45,12 60,14 75,10 90,13 105,8 120,11 135,6 150,9 165,5 180,7 200,4" fill="none" stroke="#D32F2F" stroke-width="1.5" stroke-linecap="round"/>
+          <polyline points="0,14 15,16 30,13 45,17 60,15 75,18 90,14 105,19 120,16 135,20 150,17 165,21 180,18 200,20" fill="none" stroke="#1565C0" stroke-width="1.5" stroke-dasharray="3,2"/>
+        </svg>
+        <div style="display:flex;gap:8px"><span style="font-size:9px;color:var(--up)">● 외국인</span><span style="font-size:9px;color:var(--down)">● 개인</span></div>
+      </div>
+    </div></div>
+
+    <!-- 8. Favorites -->
+    <div class="card"><div class="card-inner">
+      <div class="card-header"><span class="card-title">관심 종목</span><button class="card-action">더보기 →</button></div>
+      <div class="fav-scroll">
+        <div class="fav-card"><div class="fav-name">삼성전자</div><div class="fav-price up">74,200</div><div class="fav-chg up">+2.50%</div><svg style="height:24px;margin-top:6px" viewBox="0 0 100 24" preserveAspectRatio="none"><polyline points="0,20 15,18 30,15 45,17 60,12 75,10 90,8 100,6" fill="none" stroke="#D32F2F" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+        <div class="fav-card"><div class="fav-name">카카오</div><div class="fav-price down">52,300</div><div class="fav-chg down">-1.20%</div><svg style="height:24px;margin-top:6px" viewBox="0 0 100 24" preserveAspectRatio="none"><polyline points="0,6 15,8 30,10 45,9 60,14 75,16 90,18 100,20" fill="none" stroke="#1565C0" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+        <div class="fav-card"><div class="fav-name">NAVER</div><div class="fav-price up">215,000</div><div class="fav-chg up">+0.94%</div><svg style="height:24px;margin-top:6px" viewBox="0 0 100 24" preserveAspectRatio="none"><polyline points="0,16 15,14 30,18 45,12 60,10 75,14 90,8 100,6" fill="none" stroke="#D32F2F" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+        <div class="fav-card"><div class="fav-name">현대차</div><div class="fav-price up">268,000</div><div class="fav-chg up">+1.52%</div><svg style="height:24px;margin-top:6px" viewBox="0 0 100 24" preserveAspectRatio="none"><polyline points="0,18 15,16 30,14 45,16 60,12 75,8 90,10 100,4" fill="none" stroke="#D32F2F" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+        <div class="fav-more">더보기</div>
+      </div>
+    </div></div>
+
+    <!-- 9. Dividend -->
+    <div class="card"><div class="card-inner">
+      <div class="card-header"><span class="card-title">배당/권리락 일정</span><span class="card-sub">보유 종목 기준</span></div>
+      <div class="div-item"><div class="div-date"><span class="div-month">4월</span><span class="div-day">15</span></div><div class="div-info"><div class="div-name">삼성전자</div><div class="div-detail">배당금 361원/주</div></div><div class="div-yield">0.5%</div></div>
+      <div class="div-item"><div class="div-date"><span class="div-month">4월</span><span class="div-day">22</span></div><div class="div-info"><div class="div-name">SK하이닉스</div><div class="div-detail">배당금 1,200원/주</div></div><div class="div-yield">0.6%</div></div>
+    </div></div>
+
+    <!-- 10. Calendar -->
+    <div class="card"><div class="card-inner">
+      <div class="card-header"><span class="card-title">수익 캘린더</span></div>
+      <div class="cal-header"><span class="cal-month">2026년 3월</span><span class="cal-total up">+428,300원</span></div>
+      <div class="cal-weekdays"><span class="cal-wd">일</span><span class="cal-wd">월</span><span class="cal-wd">화</span><span class="cal-wd">수</span><span class="cal-wd">목</span><span class="cal-wd">금</span><span class="cal-wd">토</span></div>
+      <div class="cal-days">
+        <div class="cal-d empty"></div><div class="cal-d empty"></div><div class="cal-d empty"></div><div class="cal-d empty"></div><div class="cal-d empty"></div><div class="cal-d empty"></div><div class="cal-d"><span class="cal-d-num">1</span></div>
+        <div class="cal-d pos"><span class="cal-d-num">2</span><span class="cal-d-pnl">+12K</span></div><div class="cal-d pos"><span class="cal-d-num">3</span><span class="cal-d-pnl">+45K</span></div><div class="cal-d neg"><span class="cal-d-num">4</span><span class="cal-d-pnl">-8K</span></div><div class="cal-d pos"><span class="cal-d-num">5</span><span class="cal-d-pnl">+22K</span></div><div class="cal-d pos"><span class="cal-d-num">6</span><span class="cal-d-pnl">+67K</span></div><div class="cal-d neg"><span class="cal-d-num">7</span><span class="cal-d-pnl">-15K</span></div><div class="cal-d"><span class="cal-d-num">8</span></div>
+        <div class="cal-d"><span class="cal-d-num">9</span></div><div class="cal-d pos"><span class="cal-d-num">10</span><span class="cal-d-pnl">+33K</span></div><div class="cal-d neg"><span class="cal-d-num">11</span><span class="cal-d-pnl">-5K</span></div><div class="cal-d pos"><span class="cal-d-num">12</span><span class="cal-d-pnl">+18K</span></div><div class="cal-d pos"><span class="cal-d-num">13</span><span class="cal-d-pnl">+41K</span></div><div class="cal-d neg"><span class="cal-d-num">14</span><span class="cal-d-pnl">-22K</span></div><div class="cal-d"><span class="cal-d-num">15</span></div>
+        <div class="cal-d"><span class="cal-d-num">16</span></div><div class="cal-d pos"><span class="cal-d-num">17</span><span class="cal-d-pnl">+55K</span></div><div class="cal-d pos"><span class="cal-d-num">18</span><span class="cal-d-pnl">+28K</span></div><div class="cal-d pos"><span class="cal-d-num">19</span><span class="cal-d-pnl">+12K</span></div><div class="cal-d neg"><span class="cal-d-num">20</span><span class="cal-d-pnl">-31K</span></div><div class="cal-d pos"><span class="cal-d-num">21</span><span class="cal-d-pnl">+8K</span></div><div class="cal-d"><span class="cal-d-num">22</span></div>
+        <div class="cal-d"><span class="cal-d-num">23</span></div><div class="cal-d pos"><span class="cal-d-num">24</span><span class="cal-d-pnl">+62K</span></div><div class="cal-d neg"><span class="cal-d-num">25</span><span class="cal-d-pnl">-19K</span></div><div class="cal-d pos"><span class="cal-d-num">26</span><span class="cal-d-pnl">+38K</span></div><div class="cal-d today pos"><span class="cal-d-num">27</span><span class="cal-d-pnl">+82K</span></div><div class="cal-d"><span class="cal-d-num">28</span></div><div class="cal-d"><span class="cal-d-num">29</span></div>
+        <div class="cal-d"><span class="cal-d-num">30</span></div><div class="cal-d"><span class="cal-d-num">31</span></div><div class="cal-d empty"></div><div class="cal-d empty"></div><div class="cal-d empty"></div><div class="cal-d empty"></div><div class="cal-d empty"></div>
+      </div>
+    </div></div>
+
+    <!-- 11. News -->
+    <div class="card"><div class="card-inner">
+      <div class="card-header"><span class="card-title">주요 뉴스</span><button class="card-action">더보기 →</button></div>
+      <div class="news-item"><div class="news-meta"><span class="news-tag">반도체</span><span class="news-time">14:23</span></div><div class="news-title">삼성전자, HBM4 양산 앞당긴다…"2026년 하반기 본격 공급"</div></div>
+      <div class="news-item"><div class="news-meta"><span class="news-tag">2차전지</span><span class="news-time">13:05</span></div><div class="news-title">LG엔솔·SK온, 북미 합작공장 추가 투자 검토…"트럼프 IRA 영향 제한적"</div></div>
+      <div class="news-item"><div class="news-meta"><span class="news-tag">시장</span><span class="news-time">11:30</span></div><div class="news-title">외국인, 코스피 3거래일 연속 순매수…"밸류업 기대감 재부각"</div></div>
+    </div></div>
+
+    <div style="height:20px"></div>
+  </div>
+
+  <!-- Tab Bar -->
+  <div class="tab-bar">
+    <div class="tab-item"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span class="tab-label">홈</span></div>
+    <div class="tab-item active"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="1.8"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg><span class="tab-label">홈2</span></div>
+    <div class="tab-item"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="tab-label">리포트</span></div>
+    <div class="tab-item"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg><span class="tab-label">자동매매</span></div>
+    <div class="tab-item"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg><span class="tab-label">설정</span></div>
+  </div>
+</div>
+</body>
+</html>

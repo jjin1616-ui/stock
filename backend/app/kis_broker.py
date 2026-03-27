@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import threading
+import time
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -561,8 +562,14 @@ class KisBrokerClient:
         merged_rows: list[dict[str, Any]] = []
         summary_output2: dict[str, Any] = {}
         max_pages = 100
+        overall_deadline = time.monotonic() + 30.0
 
         for _ in range(max_pages):
+            if time.monotonic() > overall_deadline:
+                logger.warning("KIS balance overall timeout (30s) env=%s pages=%s", env_key, len(page_payloads))
+                if merged_rows:
+                    break
+                return KisBalanceResult(ok=False, status_code=504, message="KIS_BALANCE_OVERALL_TIMEOUT")
             current_ctx = (ctx_fk100, ctx_nk100)
             if current_ctx in seen_ctx:
                 logger.warning("KIS balance pagination loop detected env=%s ctx=%s", env_key, current_ctx)
