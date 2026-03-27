@@ -102,3 +102,17 @@
 5. **히스토리 기록 누락**: 작업 완료 후 HISTORY 미기록
 
 ---
+
+## 2026-03-27 KST
+### Home2Screen Tasks 3-5: AutoTrade 상태, 매매피드, 전체 섹션 포팅
+#### 변경 내역
+- Task 3 — AutoTradeStatusCard2: StatusChip, MetricItem 컴포저블 추가. Gate 상태(regimeMode != RISK_OFF) → 진입 허용(초록)/진입 차단(빨강). Home2ViewModel에 loadPerformance() 추가
+- Task 4 — TradeFeedSummary 서버+앱: schemas.py에 TradeFeedSummary 모델 추가 + TradeFeedResponse.summary 필드 추가. main.py /autotrade/feed에 summary 계산 추가. ApiModels.kt TradeFeedResponseDto에 summary 필드 추가. TradeFeedSummaryCard + TradeFeedRow 컴포저블 추가. tradeFeedSummaryState 언커멘트
+- Task 5 — 기존 섹션 포팅: Home2ViewModel에 loadPremarket, loadMarketIndices, loadNewsClusters, loadFavorites, loadInvestorFlow, loadPnlCalendar 추가 (HomeViewModel 패턴 그대로 따름). load() 코루틴스코프 병렬 실행. fetchQuotes() 실제 구현. 장중 폴링 추가
+- Home2Screen LazyColumn 완성: BriefingBanner, AccountPositionsCard, AutoTradeStatusCard2, TradeFeedSummaryCard, MarketIndicesCard, RecommendationCard, InvestorFlowCard2, FavoritesSection, PnlCalendar, NewsSection
+#### 배포
+- APK: 미배포 (빌드만 검증)
+- 서버: 미배포 (schemas.py, main.py 변경 포함 — 다음 서버 배포 시 함께 반영 필요)
+#### 검증
+- ./gradlew assembleDebug BUILD SUCCESSFUL (warning만, 오류 없음)
+---
