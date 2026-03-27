@@ -57,12 +57,23 @@ import com.example.stock.ui.theme.TextMain
 import com.example.stock.ui.theme.TextMuted
 import com.example.stock.viewmodel.AppViewModelFactory
 import com.example.stock.viewmodel.HomeViewModel
+import com.example.stock.viewmodel.DailyFlow
 import com.example.stock.viewmodel.InvestorFlowSummary
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import kotlin.math.abs
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size as GeoSize
+import androidx.compose.ui.text.style.TextAlign
 
 private val PageBg = Color(0xFFF5F6F8)
 private val CardBg = Color.White
-private val UpColor = Color(0xFFE95A68)
+private val UpColor = Color(0xFFD32F2F)
 private val DownColor = Color(0xFF2F6BFF)
 private val GreenColor = Color(0xFF00B894)
 private val ChipBg = Color(0xFFEFF3FF)
@@ -89,6 +100,7 @@ fun HomeScreen() {
     val briefing = vm.briefingState.value
     val marketTemperature = vm.marketTemperatureState.value
     val snapshotDate = vm.snapshotDateState.value
+    val liveIndices = vm.liveIndicesState.value
     val tradeFeed = vm.tradeFeedState.value
     val pnlCalendar = vm.pnlCalendarState.value
 
@@ -152,11 +164,13 @@ fun HomeScreen() {
                         MarketIndexSimpleCard(
                             label = "코스피",
                             value = marketSnapshot?.kospiClose,
+                            changePct = liveIndices?.kospi?.changePct,
                             modifier = Modifier.weight(1f),
                         )
                         MarketIndexSimpleCard(
                             label = "코스닥",
                             value = marketSnapshot?.kosdaqClose,
+                            changePct = liveIndices?.kosdaq?.changePct,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -166,6 +180,7 @@ fun HomeScreen() {
                             MarketIndexSimpleCard(
                                 label = "원/달러",
                                 value = marketSnapshot.usdkrwClose,
+                                changePct = liveIndices?.usdkrw?.changePct,
                                 modifier = Modifier.weight(1f),
                             )
                             Spacer(Modifier.weight(1f))
@@ -208,7 +223,7 @@ fun HomeScreen() {
             item {
                 HomeSectionCard(title = "투자자 수급 현황") {
                     if (investorFlow != null) {
-                        InvestorFlowBars(flow = investorFlow)
+                        InvestorFlowCard(flow = investorFlow)
                     } else {
                         Text("장 마감 후에는 수급 데이터가 제공되지 않습니다.", color = TextMuted, fontSize = 13.sp)
                     }
@@ -650,6 +665,7 @@ private fun HomeSectionCard(title: String, content: @Composable () -> Unit) {
 private fun MarketIndexSimpleCard(
     label: String,
     value: Double?,
+    changePct: Double? = null,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -672,71 +688,216 @@ private fun MarketIndexSimpleCard(
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
             )
+            if (changePct != null) {
+                val sign = if (changePct >= 0) "+" else ""
+                val color = if (changePct >= 0) UpColor else DownColor
+                Text(
+                    text = "${sign}${"%.2f".format(changePct)}%",
+                    color = color,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+    }
+}
+
+// ─── 투자자 수급 카드: 실시간 + 3일누적(diverging bar) + 5일 스파크라인 ───
+
+@Composable
+private fun InvestorFlowCard(flow: InvestorFlowSummary) {
+    val isValue = flow.unit == "value"
+    val todayFlow = flow.dailyFlow.lastOrNull()
+    val entries3d = listOf(
+        "외국인" to flow.foreign,
+        "기관" to flow.institution,
+        "개인" to flow.individual,
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // 1단: 오늘 (dailyFlow 최근일)
+        if (todayFlow != null) {
+            FlowSubHeader("오늘")
+            DivergingBarRows(
+                entries = listOf(
+                    "외국인" to todayFlow.foreign,
+                    "기관" to todayFlow.institution,
+                    "개인" to todayFlow.individual,
+                ),
+                isValue = isValue,
+            )
+        }
+        // 2단: 3일 누적
+        FlowSubHeader("3일 누적")
+        DivergingBarRows(entries = entries3d, isValue = isValue)
+        // 3단: 5일 추세 스파크라인
+        if (flow.dailyFlow.size >= 2) {
+            FlowSubHeader("5일 추세")
+            FlowSparklines3Col(dailyFlow = flow.dailyFlow, isValue = isValue)
         }
     }
 }
 
 @Composable
-private fun InvestorFlowBars(flow: InvestorFlowSummary) {
-    val isValue = flow.unit == "value"
-    val entries = listOf(
-        "개인" to flow.individual,
-        "외국인" to flow.foreign,
-        "기관" to flow.institution,
-    )
+private fun FlowSubHeader(text: String) {
+    Text(text = text, color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+}
+
+/** 중앙 기준 diverging bar: 양수→오른쪽(빨강), 음수→왼쪽(파랑) */
+@Composable
+private fun DivergingBarRows(entries: List<Pair<String, Long>>, isValue: Boolean) {
     val maxAbs = entries.maxOfOrNull { abs(it.second.toFloat()) }?.coerceAtLeast(1f) ?: 1f
-
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         entries.forEach { (label, rawValue) ->
-            val converted = if (isValue) rawValue / 100.0 else rawValue / 10000.0
-            val suffix = if (isValue) "억" else "만주"
-            val isPositive = converted >= 0
-            val barColor = if (isPositive) CoralAccent else BluePrimary
-            val sign = if (isPositive) "+" else ""
-            val displayText = "${sign}${"%.0f".format(converted)}${suffix}"
-            val fraction = (abs(rawValue.toFloat()) / maxAbs).coerceIn(0.05f, 1f)
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            val isPositive = rawValue >= 0
+            val barColor = if (isPositive) UpColor else DownColor
+            val fraction = (abs(rawValue.toFloat()) / maxAbs).coerceIn(0f, 1f)
+            val displayText = fmtSupplyValue(rawValue, isValue)
+            val animFraction by animateFloatAsState(
+                targetValue = fraction,
+                animationSpec = tween(durationMillis = 600),
+                label = "bar_$label",
+            )
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = label,
                     color = TextMuted,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
-                    modifier = Modifier.width(48.dp),
+                    modifier = Modifier.width(40.dp),
                 )
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(22.dp)
-                        .background(
-                            color = Color(0xFFF0F1F4),
-                            shape = RoundedCornerShape(6.dp),
-                        ),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(fraction)
-                            .height(22.dp)
-                            .background(
-                                color = barColor.copy(alpha = 0.8f),
-                                shape = RoundedCornerShape(6.dp),
-                            ),
+                Canvas(modifier = Modifier.weight(1f).height(20.dp)) {
+                    val w = size.width
+                    val h = size.height
+                    val cx = w / 2f
+                    val bw = (w / 2f) * animFraction
+                    // 배경
+                    drawRoundRect(color = Color(0xFFF0F1F4), cornerRadius = CornerRadius(4.dp.toPx()))
+                    // 막대
+                    if (isPositive) {
+                        drawRect(
+                            color = barColor.copy(alpha = 0.82f),
+                            topLeft = Offset(cx, 0f),
+                            size = GeoSize(bw.coerceAtLeast(0f), h),
+                        )
+                    } else {
+                        drawRect(
+                            color = barColor.copy(alpha = 0.82f),
+                            topLeft = Offset((cx - bw).coerceAtLeast(0f), 0f),
+                            size = GeoSize(bw.coerceAtLeast(0f), h),
+                        )
+                    }
+                    // 중앙 기준선
+                    drawLine(
+                        color = Color(0xFFCCCCCC),
+                        start = Offset(cx, 2f),
+                        end = Offset(cx, h - 2f),
+                        strokeWidth = 1.5f,
                     )
                 }
                 Text(
                     text = displayText,
                     color = barColor,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .width(72.dp)
-                        .padding(start = 8.dp),
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.width(68.dp).padding(start = 6.dp),
                 )
             }
         }
+    }
+}
+
+/** 3열 스파크라인: 외국인/기관/개인 나란히 */
+@Composable
+private fun FlowSparklines3Col(dailyFlow: List<DailyFlow>, isValue: Boolean) {
+    val sparkEntries = listOf(
+        Triple("외국인", UpColor, { d: DailyFlow -> d.foreign }),
+        Triple("기관", DownColor, { d: DailyFlow -> d.institution }),
+        Triple("개인", Color(0xFF8E8E93), { d: DailyFlow -> d.individual }),
+    )
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        sparkEntries.forEach { (label, lineColor, extract) ->
+            val values = dailyFlow.map { extract(it).toFloat() }
+            val lastVal = values.lastOrNull() ?: 0f
+            val isPositive = lastVal >= 0
+            val displayText = fmtSupplyValue(lastVal.toLong(), isValue)
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(text = label, color = TextMuted, fontSize = 10.sp)
+                    Text(
+                        text = displayText,
+                        color = if (isPositive) UpColor else DownColor,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Spacer(Modifier.height(2.dp))
+                MiniSparkline(
+                    values = values,
+                    lineColor = lineColor,
+                    modifier = Modifier.fillMaxWidth().height(28.dp),
+                )
+            }
+        }
+    }
+}
+
+/** 원 단위 거래액 → 축약 표시 (±X.X억 / ±X.X조) */
+private fun fmtSupplyValue(v: Long, isValue: Boolean): String {
+    val sign = if (v >= 0) "+" else "-"
+    val absV = abs(v.toDouble())
+    return if (isValue) {
+        val uk = absV / 100_000_000.0  // 원 → 억
+        when {
+            uk >= 10_000 -> "${sign}${"%.1f".format(uk / 10_000)}조"
+            uk >= 10 -> "${sign}${"%.0f".format(uk)}억"
+            else -> "${sign}${"%.1f".format(uk)}억"
+        }
+    } else {
+        val mk = absV / 10_000.0
+        "${sign}${"%.0f".format(mk)}만주"
+    }
+}
+
+@Composable
+private fun MiniSparkline(
+    values: List<Float>,
+    lineColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    if (values.size < 2) return
+    val maxVal = values.maxOfOrNull { abs(it) }?.coerceAtLeast(1f) ?: 1f
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val midY = h / 2f
+        val step = w / (values.size - 1).coerceAtLeast(1)
+        // 0 기준선
+        drawLine(
+            color = Color(0xFFE0E0E0),
+            start = Offset(0f, midY),
+            end = Offset(w, midY),
+            strokeWidth = 1f,
+        )
+        // 스파크라인 path
+        val path = Path()
+        values.forEachIndexed { i, v ->
+            val x = i * step
+            val y = midY - (v / maxVal) * (h * 0.4f)
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        drawPath(path, color = lineColor, style = Stroke(width = 2f, cap = StrokeCap.Round))
+        // 마지막 점
+        val lastX = (values.size - 1) * step
+        val lastY = midY - (values.last() / maxVal) * (h * 0.4f)
+        drawCircle(color = lineColor, radius = 3f, center = Offset(lastX, lastY))
     }
 }
 
