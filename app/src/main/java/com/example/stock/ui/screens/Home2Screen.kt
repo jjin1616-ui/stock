@@ -1,5 +1,6 @@
 package com.example.stock.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -281,6 +282,23 @@ private fun formatPct(value: Double?): String {
     return "${sign}${String.format("%.2f", value)}%"
 }
 
+// 엔진 raw 텍스트에서 게이트/숫자 패턴 제거 후 정규화
+private fun normalizeThesis(raw: String?): String {
+    if (raw.isNullOrBlank()) return ""
+    var s = raw
+    // 게이트 텍스트 제거: "게이트OFF", "게이트ON", "게이트 OFF", "게이트 ON"
+    s = s.replace(Regex("게이트\\s*O(N|FF)"), "")
+    // 괄호 안의 +/-숫자(소수점 포함) 패턴 제거: (+0.000), (-1.23)
+    s = s.replace(Regex("\\(\\s*[+\\-]?\\d+\\.\\d+\\s*\\)"), "")
+    // 조건부 진입 → 조건부 진입으로 그대로 유지 (간결하게)
+    // "분할/소액 검토" → "분할매수"
+    s = s.replace("분할/소액 검토", "분할매수")
+    // 중복 공백, 앞뒤 공백, 앞뒤 · 제거
+    s = s.replace(Regex("\\s{2,}"), " ")
+    s = s.replace(Regex("^[\\s·]+|[\\s·]+$"), "")
+    return s.trim()
+}
+
 // ── HomeSectionCard — Styled Card Wrapper ────────────────────────────────────
 
 @Composable
@@ -386,31 +404,53 @@ private fun AccountPositionsCard(account: AutoTradeAccountSnapshotResponseDto) {
     val hasPositions = positions.isNotEmpty()
 
     HomeSectionCard(title = "내 계좌") {
-        // Hero: total asset + PnL
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Column {
-                Text("총 평가자산", style = MaterialTheme.typography.labelSmall, color = H2TextTertiary)
-                Spacer(Modifier.height(2.dp))
+        // Hero: total asset (large)
+        Text("총 평가자산", style = MaterialTheme.typography.labelSmall, color = H2TextTertiary)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            formatKrw(account.totalAssetKrw),
+            style = MaterialTheme.typography.headlineLarge.copy(
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                color = H2TextPrimary,
+            ),
+        )
+        Spacer(Modifier.height(8.dp))
+        // PnL row: amount + percent with color
+        val pnl = account.realEvalPnlKrw ?: 0.0
+        val pnlPct = account.realEvalPnlPct ?: 0.0
+        val pnlColor = h2PnlColor(pnl)
+        val pnlSign = if (pnl >= 0) "+" else ""
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "평가손익",
+                style = MaterialTheme.typography.labelSmall,
+                color = H2TextTertiary,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "${pnlSign}${formatKrw(pnl)}",
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    color = pnlColor,
+                ),
+            )
+            Spacer(Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .background(
+                        if (pnl >= 0) H2UpBg else H2DownBg,
+                        RoundedCornerShape(4.dp),
+                    )
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            ) {
                 Text(
-                    formatKrw(account.totalAssetKrw),
-                    style = MaterialTheme.typography.headlineSmall.copy(
+                    formatPct(pnlPct),
+                    style = MaterialTheme.typography.labelSmall.copy(
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 26.sp,
-                        color = H2TextPrimary,
-                    ),
-                )
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text("평가손익", style = MaterialTheme.typography.labelSmall, color = H2TextTertiary)
-                Spacer(Modifier.height(2.dp))
-                val pnl = account.realEvalPnlKrw ?: 0.0
-                val pnlPct = account.realEvalPnlPct ?: 0.0
-                Text(
-                    "${formatKrw(pnl)} (${formatPct(pnlPct)})",
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 16.sp,
-                        color = h2PnlColor(pnl),
+                        fontWeight = FontWeight.Bold,
+                        color = pnlColor,
                     ),
                 )
             }
@@ -580,13 +620,16 @@ private fun AutoTradeStatusCard2(
         if (performance != null) {
             Spacer(Modifier.height(12.dp))
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(H2CellBg, RoundedCornerShape(H2SmallRadius))
+                    .padding(vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
-                MetricCell(label = "수익률", value = "%.1f%%".format(performance.roiPct ?: 0.0), modifier = Modifier.weight(1f))
-                MetricCell(label = "승률", value = "%.0f%%".format((performance.winRate ?: 0.0) * 100.0), modifier = Modifier.weight(1f))
-                MetricCell(label = "MDD", value = "%.1f%%".format(performance.mddPct ?: 0.0), modifier = Modifier.weight(1f))
-                MetricCell(label = "주문", value = "${performance.filledTotal ?: 0}건", modifier = Modifier.weight(1f))
+                MetricCell(label = "수익률", value = "%.1f%%".format(performance.roiPct ?: 0.0))
+                MetricCell(label = "승률", value = "%.0f%%".format((performance.winRate ?: 0.0) * 100.0))
+                MetricCell(label = "MDD", value = "%.1f%%".format(performance.mddPct ?: 0.0))
+                MetricCell(label = "주문", value = "${performance.filledTotal ?: 0}건")
             }
         }
         // Reservation
@@ -605,29 +648,25 @@ private fun AutoTradeStatusCard2(
 
 @Composable
 private fun MetricCell(label: String, value: String, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .background(H2CellBg, RoundedCornerShape(H2SmallRadius))
-            .padding(horizontal = 8.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center,
+    Column(
+        modifier = modifier.padding(horizontal = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                label,
-                style = MaterialTheme.typography.labelSmall.copy(color = H2TextTertiary),
-                maxLines = 1,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                value,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontFamily = FontFamily.Monospace,
-                    color = H2TextPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                ),
-                maxLines = 1,
-            )
-        }
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall.copy(color = H2TextTertiary),
+            maxLines = 1,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            value,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontFamily = FontFamily.Monospace,
+                color = H2TextPrimary,
+                fontWeight = FontWeight.Bold,
+            ),
+            maxLines = 1,
+        )
     }
 }
 
@@ -642,33 +681,52 @@ private fun TradeFeedSummaryCard(
     HomeSectionCard(title = "오늘의 매매") {
         // Summary row
         if (summary != null) {
+            val pnl = summary.realizedPnl ?: 0.0
+            val pnlColor = h2PnlColor(pnl)
+            val pnlSign = if (pnl >= 0) "+" else ""
+            // Big PnL display
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalAlignment = Alignment.Bottom,
             ) {
-                Text(
-                    "총 ${summary.totalCount ?: 0}건",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = H2TextSecondary,
-                        fontFamily = FontFamily.Monospace,
-                    ),
-                )
-                val pnl = summary.realizedPnl ?: 0.0
-                val pnlSign = if (pnl >= 0) "+" else ""
-                Text(
-                    "${pnlSign}%,.0f원".format(pnl),
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontFamily = FontFamily.Monospace,
-                        color = h2PnlColor(pnl),
-                        fontWeight = FontWeight.SemiBold,
-                    ),
-                )
-                Text(
-                    "매수 ${summary.buyCount ?: 0} / 매도 ${summary.sellCount ?: 0}",
-                    style = MaterialTheme.typography.bodySmall.copy(color = H2TextTertiary),
-                )
+                Column {
+                    Text(
+                        "실현손익",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = H2TextTertiary,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "${pnlSign}%,.0f원".format(pnl),
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = pnlColor,
+                        ),
+                    )
+                }
+                // Count badge
+                Box(
+                    modifier = Modifier
+                        .background(H2AccentBg, RoundedCornerShape(20.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        "체결 ${summary.totalCount ?: 0}건",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            color = H2Accent,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                        ),
+                    )
+                }
             }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "매수 ${summary.buyCount ?: 0}건 / 매도 ${summary.sellCount ?: 0}건",
+                style = MaterialTheme.typography.labelSmall.copy(color = H2TextTertiary),
+            )
             Spacer(Modifier.height(10.dp))
         }
         // Expand toggle
@@ -850,10 +908,9 @@ private fun IndexBox(label: String, value: Double?, changePct: Double?, modifier
             Spacer(Modifier.height(4.dp))
             Text(
                 if (value != null) "%,.2f".format(value) else "--",
-                style = MaterialTheme.typography.bodyLarge.copy(
+                style = MaterialTheme.typography.titleLarge.copy(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
                     color = H2TextPrimary,
                 ),
             )
@@ -1026,15 +1083,16 @@ private fun VolumeSurgeCard(items: List<VolumeSurgeItemDto>) {
                     if (ratio != null && ratio > 0) {
                         Box(
                             modifier = Modifier
-                                .background(H2OrangeBg, RoundedCornerShape(4.dp))
+                                .background(H2UpBg, RoundedCornerShape(4.dp))
                                 .padding(horizontal = 6.dp, vertical = 2.dp),
                         ) {
                             Text(
                                 "\u2191 ${"%.1f".format(ratio)}배",
                                 style = MaterialTheme.typography.labelSmall.copy(
-                                    color = H2Orange,
+                                    color = H2Up,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
                                 ),
                             )
                         }
@@ -1178,15 +1236,24 @@ private fun RecommendationCard(
     val context = LocalContext.current
     HomeSectionCard(title = "오늘의 추천") {
         if (daytradeTop.isNotEmpty()) {
-            Text(
-                "단타 TOP",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    color = H2Accent,
-                    fontWeight = FontWeight.Bold,
-                ),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .background(H2AccentBg, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        "단타 TOP",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            color = H2Accent,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                    )
+                }
+            }
             Spacer(Modifier.height(6.dp))
-            daytradeTop.forEach { stock ->
+            daytradeTop.forEachIndexed { idx, stock ->
+                if (idx > 0) HorizontalDivider(color = H2Divider, thickness = 1.dp)
                 RecommendRow(
                     name = stock.name.orEmpty(),
                     thesis = stock.thesis,
@@ -1196,17 +1263,26 @@ private fun RecommendationCard(
                 )
             }
         }
-        if (daytradeTop.isNotEmpty() && longtermTop.isNotEmpty()) Spacer(Modifier.height(10.dp))
+        if (daytradeTop.isNotEmpty() && longtermTop.isNotEmpty()) Spacer(Modifier.height(12.dp))
         if (longtermTop.isNotEmpty()) {
-            Text(
-                "장타 TOP",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    color = H2Orange,
-                    fontWeight = FontWeight.Bold,
-                ),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .background(H2OrangeBg, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        "장타 TOP",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            color = H2Orange,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                    )
+                }
+            }
             Spacer(Modifier.height(6.dp))
-            longtermTop.forEach { stock ->
+            longtermTop.forEachIndexed { idx, stock ->
+                if (idx > 0) HorizontalDivider(color = H2Divider, thickness = 1.dp)
                 RecommendRow(
                     name = stock.name.orEmpty(),
                     thesis = stock.thesis,
@@ -1221,31 +1297,34 @@ private fun RecommendationCard(
 
 @Composable
 private fun RecommendRow(name: String, thesis: String?, onClick: () -> Unit) {
+    val normalizedThesis = normalizeThesis(thesis)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(vertical = 4.dp),
+            .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             name,
-            style = MaterialTheme.typography.bodySmall.copy(
+            style = MaterialTheme.typography.bodyMedium.copy(
                 fontWeight = FontWeight.SemiBold,
                 color = H2TextPrimary,
             ),
-            modifier = Modifier.width(80.dp),
+            modifier = Modifier.width(90.dp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.width(8.dp))
-        Text(
-            thesis.orEmpty(),
-            style = MaterialTheme.typography.labelSmall.copy(color = H2TextTertiary),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        if (normalizedThesis.isNotBlank()) {
+            Text(
+                normalizedThesis,
+                style = MaterialTheme.typography.labelSmall.copy(color = H2TextSecondary),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 
@@ -1260,6 +1339,22 @@ private fun InvestorFlowCard2(flow: InvestorFlowSummary) {
         "기관" to flow.institution,
         "개인" to flow.individual,
     )
+    // Compute max abs value for today's bar scaling
+    val todayMaxAbs = if (todayFlow != null) {
+        maxOf(
+            kotlin.math.abs(todayFlow.foreign),
+            kotlin.math.abs(todayFlow.institution),
+            kotlin.math.abs(todayFlow.individual),
+            1L,
+        )
+    } else 1L
+    // Compute max abs for 3-day bar scaling
+    val threeDayMaxAbs = maxOf(
+        kotlin.math.abs(flow.foreign),
+        kotlin.math.abs(flow.institution),
+        kotlin.math.abs(flow.individual),
+        1L,
+    )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (todayFlow != null) {
             val todayKst = LocalDate.now(ZoneId.of("Asia/Seoul"))
@@ -1267,57 +1362,70 @@ private fun InvestorFlowCard2(flow: InvestorFlowSummary) {
             val todayLabel = if (flowDate == todayKst) "오늘 (실시간)" else {
                 flowDate?.format(DateTimeFormatter.ofPattern("MM/dd")) ?: todayFlow.date.takeLast(5).replace("-", "/")
             }
-            FlowItem(label = "외국인", value = todayFlow.foreign, isValue = isValue, header = todayLabel)
-            FlowItem(label = "기관", value = todayFlow.institution, isValue = isValue)
-            FlowItem(label = "개인", value = todayFlow.individual, isValue = isValue)
+            FlowItem(label = "외국인", value = todayFlow.foreign, isValue = isValue, maxAbsValue = todayMaxAbs, header = todayLabel)
+            FlowItem(label = "기관", value = todayFlow.institution, isValue = isValue, maxAbsValue = todayMaxAbs)
+            FlowItem(label = "개인", value = todayFlow.individual, isValue = isValue, maxAbsValue = todayMaxAbs)
             HorizontalDivider(color = H2Divider, thickness = 1.dp)
         }
         Text("3일 누적", style = MaterialTheme.typography.labelSmall.copy(color = H2TextTertiary, fontWeight = FontWeight.SemiBold))
         entries3d.forEach { (label, value) ->
-            FlowItem(label = label, value = value, isValue = isValue)
+            FlowItem(label = label, value = value, isValue = isValue, maxAbsValue = threeDayMaxAbs)
         }
     }
 }
 
 @Composable
-private fun FlowItem(label: String, value: Long, isValue: Boolean, header: String? = null) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (header != null) {
+private fun FlowItem(label: String, value: Long, isValue: Boolean, maxAbsValue: Long = 1L, header: String? = null) {
+    val color = if (value >= 0) H2Up else H2Down
+    val barBg = if (value >= 0) H2UpBg else H2DownBg
+    val sign = if (value >= 0) "+" else ""
+    val displayText = if (isValue) {
+        val billions = value / 100_000_000.0
+        "${sign}${"%.1f".format(billions)}억"
+    } else {
+        "${sign}${"%,d".format(value)}주"
+    }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val displayLabel = header ?: label
             Text(
-                header,
+                displayLabel,
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = if (header != null) FontWeight.SemiBold else FontWeight.Normal,
                     color = H2TextSecondary,
                 ),
                 modifier = Modifier.width(80.dp),
             )
-        } else {
             Text(
-                label,
-                style = MaterialTheme.typography.labelSmall.copy(color = H2TextSecondary),
-                modifier = Modifier.width(50.dp),
+                displayText,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontFamily = FontFamily.Monospace,
+                    color = color,
+                    fontWeight = FontWeight.Bold,
+                ),
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
             )
         }
-        val color = if (value >= 0) H2Up else H2Down
-        val sign = if (value >= 0) "+" else ""
-        val displayText = if (isValue) {
-            val billions = value / 100_000_000.0
-            "${sign}${"%.1f".format(billions)}억"
-        } else {
-            "${sign}${"%,d".format(value)}주"
+        Spacer(Modifier.height(3.dp))
+        // Horizontal bar chart
+        val fraction = if (maxAbsValue > 0) (kotlin.math.abs(value).toFloat() / maxAbsValue.toFloat()).coerceIn(0f, 1f) else 0f
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(5.dp)
+                .background(H2Divider, RoundedCornerShape(3.dp)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fraction)
+                    .height(5.dp)
+                    .background(color.copy(alpha = 0.5f), RoundedCornerShape(3.dp)),
+            )
         }
-        Text(
-            displayText,
-            style = MaterialTheme.typography.bodySmall.copy(
-                fontFamily = FontFamily.Monospace,
-                color = color,
-                fontWeight = FontWeight.SemiBold,
-            ),
-            modifier = Modifier.weight(1f),
-        )
     }
 }
 
@@ -1374,43 +1482,128 @@ private fun FavoritesSection(
 
 // ── News ─────────────────────────────────────────────────────────────────────
 
+private fun newsTimeAgo(publishedStart: String?): String {
+    if (publishedStart.isNullOrBlank()) return ""
+    return try {
+        val now = java.time.OffsetDateTime.now(ZoneId.of("Asia/Seoul"))
+        val dt = java.time.OffsetDateTime.parse(publishedStart)
+        val minutes = java.time.Duration.between(dt, now).toMinutes()
+        when {
+            minutes < 60 -> "${minutes}분 전"
+            minutes < 1440 -> "${minutes / 60}시간 전"
+            else -> "${minutes / 1440}일 전"
+        }
+    } catch (e: Exception) {
+        try {
+            // Try without offset
+            val now = java.time.LocalDateTime.now(ZoneId.of("Asia/Seoul"))
+            val dt = java.time.LocalDateTime.parse(publishedStart.take(19))
+            val minutes = java.time.Duration.between(dt, now).toMinutes()
+            when {
+                minutes < 60 -> "${minutes}분 전"
+                minutes < 1440 -> "${minutes / 60}시간 전"
+                else -> "${minutes / 1440}일 전"
+            }
+        } catch (e2: Exception) {
+            ""
+        }
+    }
+}
+
 @Composable
 private fun NewsSection(clusters: List<NewsClusterListItemDto>) {
     HomeSectionCard(title = "주요 뉴스") {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            clusters.forEachIndexed { idx, cluster ->
-                if (idx > 0) HorizontalDivider(color = H2Divider, thickness = 1.dp)
-                Column(
+        // Count badge in header area
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Spacer(Modifier.width(1.dp))
+            if (clusters.isNotEmpty()) {
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
+                        .background(H2AccentBg, RoundedCornerShape(20.dp))
+                        .padding(horizontal = 10.dp, vertical = 3.dp),
                 ) {
                     Text(
-                        cluster.title.orEmpty(),
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            color = H2TextPrimary,
+                        "${clusters.size}개",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = H2Accent,
+                            fontWeight = FontWeight.Bold,
                         ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(Modifier.height(2.dp))
-                    Row {
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            clusters.forEach { cluster ->
+                // Card style per news item
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(H2SmallRadius),
+                    color = H2CellBg,
+                    border = BorderStroke(1.dp, H2CardBorder),
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                        // Title
                         Text(
-                            "${cluster.articleCount ?: 0}건",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = H2Accent,
+                            cluster.title.orEmpty(),
+                            style = MaterialTheme.typography.bodySmall.copy(
                                 fontWeight = FontWeight.SemiBold,
+                                color = H2TextPrimary,
                             ),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                         )
-                        if (!cluster.topTickers.isNullOrEmpty()) {
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                cluster.topTickers.take(3).joinToString(", "),
-                                style = MaterialTheme.typography.labelSmall.copy(color = H2TextTertiary),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                        Spacer(Modifier.height(6.dp))
+                        // Meta row: time badge + article count + tickers
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            // Time badge
+                            val timeAgo = newsTimeAgo(cluster.publishedStart)
+                            if (timeAgo.isNotBlank()) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(H2Divider, RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                                ) {
+                                    Text(
+                                        timeAgo,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            color = H2TextTertiary,
+                                            fontFamily = FontFamily.Monospace,
+                                        ),
+                                    )
+                                }
+                            }
+                            // Article count badge
+                            Box(
+                                modifier = Modifier
+                                    .background(H2AccentBg, RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            ) {
+                                Text(
+                                    "${cluster.articleCount ?: 0}건",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = H2Accent,
+                                        fontWeight = FontWeight.SemiBold,
+                                    ),
+                                )
+                            }
+                            // Top tickers
+                            if (!cluster.topTickers.isNullOrEmpty()) {
+                                Text(
+                                    cluster.topTickers.take(3).joinToString(", "),
+                                    style = MaterialTheme.typography.labelSmall.copy(color = H2TextTertiary),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                         }
                     }
                 }
