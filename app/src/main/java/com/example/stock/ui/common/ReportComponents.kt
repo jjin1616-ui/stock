@@ -1419,12 +1419,12 @@ private fun fmtCurrency(v: Double, currencyCode: String): String {
 }
 
 private fun fmtCompact(v: Double): String {
-    val n = v.roundToLong()
+    val abs = kotlin.math.abs(v)
     return when {
-        n >= 1_000_000_000L -> String.format("%.2fB", n / 1_000_000_000.0)
-        n >= 1_000_000L -> String.format("%.2fM", n / 1_000_000.0)
-        n >= 1_000L -> String.format("%,d", n)
-        else -> n.toString()
+        abs >= 1_000_000_000_000.0 -> String.format("%.1f조", v / 1_000_000_000_000.0)
+        abs >= 100_000_000.0 -> String.format("%.1f억", v / 100_000_000.0)
+        abs >= 10_000.0 -> String.format("%.1f만", v / 10_000.0)
+        else -> String.format("%,.0f", v)
     }
 }
 

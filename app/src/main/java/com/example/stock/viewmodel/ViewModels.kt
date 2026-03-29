@@ -38,6 +38,7 @@ import com.example.stock.data.api.AutoTradeAccountSnapshotResponseDto
 import com.example.stock.data.api.AutoTradeBootstrapResponseDto
 import com.example.stock.data.api.AutoTradeReservationsResponseDto
 import com.example.stock.data.api.AutoTradeReservationActionResponseDto
+import com.example.stock.data.api.AutoTradeReservationPendingCancelResponseDto
 import com.example.stock.data.api.AutoTradeOrderCancelResponseDto
 import com.example.stock.data.api.AutoTradePendingCancelResponseDto
 import com.example.stock.data.api.AutoTradeReentryBlocksResponseDto
@@ -103,21 +104,29 @@ class PremarketViewModel(private val repository: StockRepository) : ViewModel() 
     val evalState = mutableStateOf(UiState<EvalMonthlyDto>())
     val quoteState = mutableStateMapOf<String, RealtimeQuoteItemDto>()
     val miniChartState = mutableStateMapOf<String, List<ChartPointDto>>()
+    private val miniChartFetchedAt = mutableMapOf<String, Long>()
+    private val MINI_CHART_TTL_MS = 5 * 60 * 1000L
     private var quoteJob: Job? = null
     private var pollJob: Job? = null
     private var fallbackRecoveryJob: Job? = null
     private var forceRegenOnce: Boolean = false
     private var fallbackRecoveryDoneForDate: String? = null
+    private val quoteMissCount = mutableMapOf<String, Int>()
+    private var loadJob: Job? = null
 
     fun load(force: Boolean = false) {
+        loadJob?.cancel()
+        quoteJob?.cancel()
+        pollJob?.cancel()
+        fallbackRecoveryJob?.cancel()
         val seoul = TimeZone.of("Asia/Seoul")
         val today = Clock.System.todayIn(seoul)
         val todayStr = today.toString()
         val yesterdayStr = today.minus(1, DateTimeUnit.DAY).toString()
 
         reportState.value = reportState.value.copy(loading = true, error = null)
-        
-        viewModelScope.launch {
+
+        loadJob = viewModelScope.launch {
             // 1. 즉시 캐시 데이터 표시 (오늘 혹은 가장 최근 것)
             val fast = repository.getPremarketFast(todayStr)
             reportState.value = UiState(
@@ -245,29 +254,35 @@ class PremarketViewModel(private val repository: StockRepository) : ViewModel() 
         val daytradePrefetch = maxOf(12, minOf(settings.daytradeDisplayCount, 60))
         val longtermPrefetch = maxOf(8, minOf(settings.longtermDisplayCount, 20))
         val target = (daytradeTickers.take(daytradePrefetch) + longtermTickers.take(longtermPrefetch)).distinct()
+        val now = System.currentTimeMillis()
         target.forEach { ticker ->
             val cached = miniChartState[ticker]
-            if ((cached?.size ?: 0) >= 2) return@forEach
+            val fetchedAt = miniChartFetchedAt[ticker] ?: 0L
+            if ((cached?.size ?: 0) >= 2 && (now - fetchedAt) < MINI_CHART_TTL_MS) return@forEach
             viewModelScope.launch {
                 repository.getChartDaily(ticker, 7)
                     .onSuccess { dto ->
                         val points = dto.points.orEmpty().takeLast(7)
-                        if (points.size >= 2) miniChartState[ticker] = points else miniChartState.remove(ticker)
+                        if (points.size >= 2) { miniChartState[ticker] = points; miniChartFetchedAt[ticker] = System.currentTimeMillis() }
+                        else miniChartState.remove(ticker)
                     }
             }
         }
     }
 
     fun ensureMiniCharts(tickers: List<String>) {
+        val now = System.currentTimeMillis()
         val target = tickers.distinct().filter { it.isNotBlank() }.take(40)
         target.forEach { ticker ->
             val cached = miniChartState[ticker]
-            if ((cached?.size ?: 0) >= 2) return@forEach
+            val fetchedAt = miniChartFetchedAt[ticker] ?: 0L
+            if ((cached?.size ?: 0) >= 2 && (now - fetchedAt) < MINI_CHART_TTL_MS) return@forEach
             viewModelScope.launch {
                 repository.getChartDaily(ticker, 7)
                     .onSuccess { dto ->
                         val points = dto.points.orEmpty().takeLast(7)
-                        if (points.size >= 2) miniChartState[ticker] = points else miniChartState.remove(ticker)
+                        if (points.size >= 2) { miniChartState[ticker] = points; miniChartFetchedAt[ticker] = System.currentTimeMillis() }
+                        else miniChartState.remove(ticker)
                     }
             }
         }
@@ -295,7 +310,12 @@ class PremarketViewModel(private val repository: StockRepository) : ViewModel() 
                 if (tickers.isNotEmpty()) {
                     val merged = fetchQuotesChunked(tickers)
                     if (merged.isNotEmpty()) {
-                        quoteState.keys.filter { key -> key in tickers && key !in merged }.forEach { quoteState.remove(it) }
+                        merged.keys.forEach { quoteMissCount.remove(it) }
+                        tickers.filter { it in quoteState && it !in merged }.forEach { key ->
+                            val count = (quoteMissCount[key] ?: 0) + 1
+                            if (count >= 3) { quoteState.remove(key); quoteMissCount.remove(key) }
+                            else quoteMissCount[key] = count
+                        }
                         quoteState.putAll(merged)
                     }
                 }
@@ -385,6 +405,7 @@ class PremarketViewModel(private val repository: StockRepository) : ViewModel() 
     }
 
     override fun onCleared() {
+        loadJob?.cancel()
         quoteJob?.cancel()
         pollJob?.cancel()
         fallbackRecoveryJob?.cancel()
@@ -858,9 +879,9 @@ class PapersViewModel(private val repository: StockRepository) : ViewModel() {
         quoteJob = viewModelScope.launch {
             while (isActive) {
                 repository.getRealtimeQuotes(tickers)
-                    .onSuccess {
-                        quoteState.clear()
-                        quoteState.putAll(it)
+                    .onSuccess { newMap ->
+                        quoteState.keys.minus(newMap.keys).forEach { quoteState.remove(it) }
+                        quoteState.putAll(newMap)
                     }
                 delay(refreshMs)
             }
@@ -879,9 +900,9 @@ class PapersViewModel(private val repository: StockRepository) : ViewModel() {
         if (tickers.isEmpty()) return
         viewModelScope.launch {
             repository.getRealtimeQuotes(tickers)
-                .onSuccess {
-                    quoteState.clear()
-                    quoteState.putAll(it)
+                .onSuccess { newMap ->
+                    quoteState.keys.minus(newMap.keys).forEach { quoteState.remove(it) }
+                    quoteState.putAll(newMap)
                 }
         }
     }
@@ -1286,12 +1307,15 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
     val runState = mutableStateOf(UiState<AutoTradeRunResponseDto>())
     val reservationsState = mutableStateOf(UiState<AutoTradeReservationsResponseDto>())
     val reservationActionState = mutableStateOf(UiState<AutoTradeReservationActionResponseDto>())
+    val reservationPendingCancelState = mutableStateOf(UiState<AutoTradeReservationPendingCancelResponseDto>())
     val orderCancelState = mutableStateOf(UiState<AutoTradeOrderCancelResponseDto>())
     val pendingCancelState = mutableStateOf(UiState<AutoTradePendingCancelResponseDto>())
+    val pendingCountState = mutableStateOf(UiState<Int>())
     val reentryBlocksState = mutableStateOf(UiState<AutoTradeReentryBlocksResponseDto>())
     val reentryReleaseState = mutableStateOf(UiState<AutoTradeReentryReleaseResponseDto>())
     val stockSearchState = mutableStateOf(UiState<StockSearchResponseDto>())
     val holdingQuoteState = mutableStateOf<Map<String, RealtimeQuoteItemDto>>(emptyMap())
+    val reservationQuoteState = mutableStateOf<Map<String, RealtimeQuoteItemDto>>(emptyMap())
 
     fun loadAll() {
         loadBootstrap()
@@ -1307,7 +1331,7 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
         candidatesState.value = candidatesState.value.copy(loading = true, error = null)
 
         viewModelScope.launch {
-            retryNetworkResult { repository.getAutoTradeBootstrap() }
+            retryNetworkResult { repository.getAutoTradeBootstrap(fast = true) }
                 .onSuccess { payload ->
                     applyBootstrap(payload)
                 }
@@ -1318,6 +1342,7 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
                     loadSymbolRules()
                     loadBroker()
                     loadOrders()
+                    loadPendingCount()
                     loadAccount()
                     loadReservations()
                     loadCandidates(limit = 80, profile = "initial")
@@ -1389,7 +1414,12 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
 
         val prefetchLimit = maxOf(40, minOf(100, payload.candidatesPrefetchLimit ?: 80))
         loadCandidates(limit = prefetchLimit, profile = "initial")
-        loadReservations(limit = 40)
+        loadReservations(limit = 200)
+        loadPendingCount(environment = payload.settings?.settings?.environment)
+        val accountSource = payload.account?.source?.trim()?.uppercase()
+        if (accountSource != "BROKER_LIVE") {
+            loadAccount()
+        }
     }
 
     fun loadSettings() {
@@ -1629,7 +1659,7 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
         }
     }
 
-    fun loadReservations(status: String? = null, limit: Int = 20) {
+    fun loadReservations(status: String? = null, limit: Int = 200) {
         reservationsState.value = reservationsState.value.copy(loading = true, error = null)
         viewModelScope.launch {
             retryNetworkResult { repository.getAutoTradeReservations(status = status, limit = limit) }
@@ -1667,6 +1697,7 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
                     loadAccount()
                     loadReservations()
                     loadCandidates(limit = 80, profile = "initial")
+                    loadPendingCount()
                 }
                 .onFailure { e ->
                     runState.value = runState.value.copy(
@@ -1721,6 +1752,52 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
         }
     }
 
+    fun cancelReservationItem(reservationId: Int, ticker: String) {
+        val targetTicker = ticker.trim()
+        if (targetTicker.isBlank()) return
+        reservationActionState.value = reservationActionState.value.copy(loading = true, error = null)
+        viewModelScope.launch {
+            repository.cancelAutoTradeReservationItem(
+                reservationId = reservationId,
+                ticker = targetTicker,
+            ).onSuccess {
+                reservationActionState.value = UiState(
+                    data = it,
+                    loading = false,
+                    refreshedAt = Clock.System.now().toString(),
+                )
+                loadReservations(limit = 200)
+            }.onFailure { e ->
+                reservationActionState.value = reservationActionState.value.copy(
+                    loading = false,
+                    error = e.toFriendlyNetworkMessage("예약 종목 취소에 실패했습니다"),
+                )
+            }
+        }
+    }
+
+    fun cancelAllPendingReservations(environment: String? = null, maxCount: Int = 30) {
+        reservationPendingCancelState.value = reservationPendingCancelState.value.copy(loading = true, error = null)
+        viewModelScope.launch {
+            repository.cancelAutoTradePendingReservations(
+                environment = environment,
+                maxCount = maxCount.coerceIn(1, 300),
+            ).onSuccess {
+                reservationPendingCancelState.value = UiState(
+                    data = it,
+                    loading = false,
+                    refreshedAt = Clock.System.now().toString(),
+                )
+                loadReservations(limit = 200)
+            }.onFailure { e ->
+                reservationPendingCancelState.value = reservationPendingCancelState.value.copy(
+                    loading = false,
+                    error = e.toFriendlyNetworkMessage("예약 일괄취소에 실패했습니다"),
+                )
+            }
+        }
+    }
+
     fun cancelPendingOrder(orderId: Int, environment: String? = null) {
         if (orderId <= 0) return
         orderCancelState.value = orderCancelState.value.copy(loading = true, error = null)
@@ -1734,6 +1811,7 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
                     )
                     loadOrders()
                     loadAccount()
+                    loadPendingCount()
                 }
                 .onFailure { e ->
                     orderCancelState.value = orderCancelState.value.copy(
@@ -1744,12 +1822,12 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
         }
     }
 
-    fun cancelAllPendingOrders(environment: String? = null, maxCount: Int = 50) {
+    fun cancelAllPendingOrders(environment: String? = null, maxCount: Int = 20) {
         pendingCancelState.value = pendingCancelState.value.copy(loading = true, error = null)
         viewModelScope.launch {
             repository.cancelAutoTradePendingOrders(
                 environment = environment,
-                maxCount = maxCount,
+                maxCount = maxCount.coerceIn(1, 50),
             ).onSuccess {
                 pendingCancelState.value = UiState(
                     data = it,
@@ -1758,6 +1836,7 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
                 )
                 loadOrders()
                 loadAccount()
+                loadPendingCount()
             }.onFailure { e ->
                 pendingCancelState.value = pendingCancelState.value.copy(
                     loading = false,
@@ -1819,6 +1898,29 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
         }
     }
 
+    fun loadPendingCount(environment: String? = null) {
+        pendingCountState.value = pendingCountState.value.copy(loading = true, error = null)
+        viewModelScope.launch {
+            repository.getAutoTradeOrders(
+                page = 1,
+                size = 1,
+                environment = environment,
+                status = "BROKER_SUBMITTED",
+            ).onSuccess { dto ->
+                pendingCountState.value = UiState(
+                    data = dto.total ?: 0,
+                    loading = false,
+                    refreshedAt = Clock.System.now().toString(),
+                )
+            }.onFailure { e ->
+                pendingCountState.value = pendingCountState.value.copy(
+                    loading = false,
+                    error = e.toFriendlyNetworkMessage("진행중 주문 개수를 불러오지 못했습니다"),
+                )
+            }
+        }
+    }
+
     fun searchStocks(query: String, limit: Int = 50) {
         val q = query.trim()
         if (q.isBlank()) {
@@ -1861,6 +1963,20 @@ class AutoTradeViewModel(private val repository: StockRepository) : ViewModel() 
                 }
         }
     }
+
+    fun loadReservationQuotes(tickers: List<String>) {
+        val target = tickers.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(120)
+        if (target.isEmpty()) {
+            reservationQuoteState.value = emptyMap()
+            return
+        }
+        viewModelScope.launch {
+            repository.getRealtimeQuotes(target, mode = "light")
+                .onSuccess { quotes ->
+                    reservationQuoteState.value = quotes
+                }
+        }
+    }
 }
 
 class HoldingsViewModel(private val repository: StockRepository) : ViewModel() {
@@ -1869,6 +1985,7 @@ class HoldingsViewModel(private val repository: StockRepository) : ViewModel() {
     val accountProdState = mutableStateOf(UiState<AutoTradeAccountSnapshotResponseDto>())
     val symbolRulesState = mutableStateOf(UiState<AutoTradeSymbolRulesResponseDto>())
     val ordersState = mutableStateOf(UiState<AutoTradeOrdersResponseDto>())
+    val reservationsState = mutableStateOf(UiState<AutoTradeReservationsResponseDto>())
     val performanceState = mutableStateOf(UiState<AutoTradePerformanceResponseDto>())
     val actionState = mutableStateOf(UiState<AutoTradeRunResponseDto>())
     val holdingQuoteState = mutableStateOf<Map<String, RealtimeQuoteItemDto>>(emptyMap())
@@ -1877,6 +1994,7 @@ class HoldingsViewModel(private val repository: StockRepository) : ViewModel() {
         loadAccounts()
         loadSymbolRules()
         loadOrders()
+        loadReservations(limit = 200)
         loadPerformance(days = 365)
     }
 
@@ -1932,7 +2050,26 @@ class HoldingsViewModel(private val repository: StockRepository) : ViewModel() {
     fun loadOrders() {
         ordersState.value = ordersState.value.copy(loading = true, error = null)
         viewModelScope.launch {
-            retryNetworkResult { repository.getAutoTradeOrders(page = 1, size = 50) }
+            retryNetworkResult {
+                com.example.stock.data.repository.suspendRunCatching {
+                    val pageSize = 300
+                    val first = repository.getAutoTradeOrders(page = 1, size = pageSize).getOrThrow()
+                    val merged = first.items.orEmpty().toMutableList()
+                    val total = (first.total ?: merged.size).coerceAtLeast(merged.size)
+                    var page = 2
+                    while (merged.size < total && page <= 1000) {
+                        val next = repository.getAutoTradeOrders(page = page, size = pageSize).getOrThrow()
+                        val nextItems = next.items.orEmpty()
+                        if (nextItems.isEmpty()) break
+                        merged += nextItems
+                        page += 1
+                    }
+                    AutoTradeOrdersResponseDto(
+                        total = merged.size,
+                        items = merged,
+                    )
+                }
+            }
                 .onSuccess {
                     ordersState.value = UiState(
                         data = it,
@@ -1949,11 +2086,32 @@ class HoldingsViewModel(private val repository: StockRepository) : ViewModel() {
         }
     }
 
-    fun loadPerformance(days: Int = 365) {
+    fun loadReservations(limit: Int = 200) {
+        val safeLimit = limit.coerceIn(1, 200)
+        reservationsState.value = reservationsState.value.copy(loading = true, error = null)
+        viewModelScope.launch {
+            retryNetworkResult { repository.getAutoTradeReservations(limit = safeLimit) }
+                .onSuccess {
+                    reservationsState.value = UiState(
+                        data = it,
+                        loading = false,
+                        refreshedAt = Clock.System.now().toString(),
+                    )
+                }
+                .onFailure { e ->
+                    reservationsState.value = reservationsState.value.copy(
+                        loading = false,
+                        error = e.toFriendlyNetworkMessage("예약 이력을 불러오지 못했습니다"),
+                    )
+                }
+        }
+    }
+
+    fun loadPerformance(days: Int = 365, environment: String? = null) {
         val safeDays = days.coerceIn(1, 365)
         performanceState.value = performanceState.value.copy(loading = true, error = null)
         viewModelScope.launch {
-            retryNetworkResult { repository.getAutoTradePerformance(days = safeDays) }
+            retryNetworkResult { repository.getAutoTradePerformance(days = safeDays, environment = environment) }
                 .onSuccess {
                     performanceState.value = UiState(
                         data = it,
@@ -2027,6 +2185,7 @@ class HoldingsViewModel(private val repository: StockRepository) : ViewModel() {
                     )
                     loadAccounts()
                     loadOrders()
+                    loadReservations(limit = 200)
                 }
                 .onFailure { e ->
                     actionState.value = actionState.value.copy(
@@ -2059,10 +2218,282 @@ data class StrategySettingsUiState(
     val settingsHash: String = "",
 )
 
+/**
+ * 홈 화면 투자자 수급 요약 데이터.
+ * [individual], [foreign], [institution]은 각각 개인/외국인/기관의
+ * 3일 순매수 합계(백만원 단위).
+ */
+data class DailyFlow(
+    val date: String,
+    val foreign: Long,
+    val institution: Long,
+    val individual: Long,
+)
+
+data class InvestorFlowSummary(
+    val individual: Long = 0L,
+    val foreign: Long = 0L,
+    val institution: Long = 0L,
+    val unit: String = "value",
+    val dailyFlow: List<DailyFlow> = emptyList(),
+)
+
+class HomeViewModel(private val repository: StockRepository) : ViewModel() {
+    val premarketState = mutableStateOf(UiState<PremarketReportDto>(loading = true))
+    val favoritesState = mutableStateOf<List<com.example.stock.data.api.FavoriteItemDto>>(emptyList())
+    val quoteState = mutableStateMapOf<String, RealtimeQuoteItemDto>()
+    val miniChartState = mutableStateMapOf<String, List<ChartPointDto>>()
+    /** 시장 지수 (premarket report의 regime.market_snapshot에서 추출) */
+    val marketSnapshotState = mutableStateOf<com.example.stock.data.api.MarketSnapshotDto?>(null)
+    val regimeModeState = mutableStateOf<String?>(null)
+    /** 시장 지표 스냅샷 날짜 (전일 기준 라벨용) */
+    val snapshotDateState = mutableStateOf<String?>(null)
+    /** 투자자 수급 현황 (개인/외국인/기관 3일 순매수 합계) */
+    val investorFlowState = mutableStateOf<InvestorFlowSummary?>(null)
+    /** 계좌 스냅샷 */
+    val accountState = mutableStateOf<com.example.stock.data.api.AutoTradeAccountSnapshotResponseDto?>(null)
+    /** 자동매매 성과 요약 */
+    val performanceState = mutableStateOf<com.example.stock.data.api.AutoTradePerformanceItemDto?>(null)
+    /** 자동매매 설정 (활성화 여부, 환경 등) */
+    val autoTradeEnabledState = mutableStateOf<Boolean?>(null)
+    val autoTradeEnvState = mutableStateOf<String?>(null)
+    /** 예약 대기 건수 */
+    val reservationCountState = mutableStateOf(0)
+    /** 뉴스 클러스터 (핫 뉴스) */
+    val newsClustersState = mutableStateOf<List<com.example.stock.data.api.NewsClusterListItemDto>>(emptyList())
+    /** 한줄 브리핑 */
+    val briefingState = mutableStateOf<String?>(null)
+    /** 시장 온도계 */
+    val marketTemperatureState = mutableStateOf<com.example.stock.data.api.MarketTemperatureDto?>(null)
+    /** 실시간 시장 지수 */
+    val liveIndicesState = mutableStateOf<com.example.stock.data.api.MarketIndicesResponseDto?>(null)
+    /** 매매 피드 */
+    val tradeFeedState = mutableStateOf<List<com.example.stock.data.api.TradeFeedItemDto>>(emptyList())
+    /** 수익 캘린더 */
+    val pnlCalendarState = mutableStateOf<com.example.stock.data.api.PnlCalendarResponseDto?>(null)
+    /** 섹션별 에러 메시지 (키: supply, account, performance, news, indices, feed, calendar) */
+    val sectionErrorState = mutableStateMapOf<String, String>()
+    private var pollJob: Job? = null
+    private var loadJob: Job? = null
+    private val accountMutex = kotlinx.coroutines.sync.Mutex()
+
+    fun load() {
+        loadJob?.cancel()
+        pollJob?.cancel()
+        loadJob = viewModelScope.launch {
+            val seoul = kotlinx.datetime.TimeZone.of("Asia/Seoul")
+            val today = Clock.System.todayIn(seoul).toString()
+
+            premarketState.value = premarketState.value.copy(loading = true, error = null)
+            val fast = repository.getPremarketFast(today)
+            premarketState.value = UiState(data = fast.data, loading = false, source = fast.source)
+
+            coroutineScope {
+                val preJob = async {
+                    repository.getPremarket(today).onSuccess { wrapped ->
+                        premarketState.value = UiState(data = wrapped.data, loading = false, source = wrapped.source)
+                        loadMiniCharts(wrapped.data)
+                        // regime에서 시장 지수 추출
+                        wrapped.data.regime?.let { regime ->
+                            regimeModeState.value = regime.mode
+                            regime.marketSnapshot?.let { snap ->
+                                marketSnapshotState.value = snap
+                            }
+                        }
+                        // 스냅샷 날짜 (전일 기준 라벨용)
+                        snapshotDateState.value = wrapped.data.status?.snapshotDate
+                        // 한줄 브리핑 + 시장 온도계
+                        briefingState.value = wrapped.data.briefing
+                        marketTemperatureState.value = wrapped.data.marketTemperature
+                    }.onFailure { err ->
+                        if (premarketState.value.data == null) {
+                            premarketState.value = UiState(error = err.message, loading = false)
+                        }
+                    }
+                }
+                val favJob = async {
+                    repository.getFavorites().onSuccess { items ->
+                        favoritesState.value = items
+                    }
+                }
+                val acctJob = async { loadAccount() }
+                val perfJob = async { loadPerformance() }
+                val newsJob = async { loadNewsClusters() }
+                val feedJob = async { loadTradeFeed() }
+                val calendarJob = async { loadPnlCalendar() }
+                val indicesJob = async { loadMarketIndices() }
+                preJob.await()
+                favJob.await()
+                acctJob.await()
+                perfJob.await()
+                newsJob.await()
+                feedJob.await()
+                calendarJob.await()
+                indicesJob.await()
+                // 수급은 최대 12s 소요 — await 제거하여 다른 카드 로드를 막지 않음
+                viewModelScope.launch { loadInvestorFlow() }
+            }
+            startPolling()
+        }
+    }
+
+    private fun loadMiniCharts(report: PremarketReportDto) {
+        val preTickers = report.daytradeTop?.mapNotNull { it.ticker }.orEmpty().take(5)
+        val favTickers = favoritesState.value.mapNotNull { it.ticker }
+        val tickers = (preTickers + favTickers).distinct()
+        if (tickers.isEmpty()) return
+        viewModelScope.launch {
+            repository.getChartDailyBatch(tickers, days = 7).onSuccess { map ->
+                map.forEach { (code, dto) ->
+                    dto.points?.let { pts -> miniChartState[code] = pts }
+                }
+            }
+        }
+    }
+
+    /**
+     * /market/supply API로 종목별 투자자 수급 데이터를 가져와
+     * 전체 개인/외국인/기관 3일 순매수 합계를 계산한다.
+     */
+    private suspend fun loadInvestorFlow() {
+        repository.getMarketSupply(count = 15).onSuccess { resp ->
+            sectionErrorState.remove("supply")
+            val items = resp.items.orEmpty()
+            var individual = 0L
+            var foreign = 0L
+            var institution = 0L
+            for (item in items) {
+                individual += (item.individual3d ?: 0).toLong()
+                foreign += (item.foreign3d ?: 0).toLong()
+                institution += (item.institution3d ?: 0).toLong()
+            }
+            val dailyFlow = resp.dailyFlow.orEmpty().mapNotNull { d ->
+                val dt = d.date ?: return@mapNotNull null
+                DailyFlow(date = dt, foreign = d.foreign, institution = d.institution, individual = d.individual)
+            }
+            investorFlowState.value = InvestorFlowSummary(
+                individual = individual,
+                foreign = foreign,
+                institution = institution,
+                unit = resp.unit ?: "value",
+                dailyFlow = dailyFlow,
+            )
+        }.onFailure {
+            if (investorFlowState.value == null) sectionErrorState["supply"] = "수급 데이터를 불러올 수 없습니다"
+        }
+    }
+
+    private suspend fun loadAccount() {
+        if (!accountMutex.tryLock()) return // 이미 실행 중이면 무시
+        try {
+            repository.getAutoTradeBootstrap(fast = true).onSuccess { boot ->
+                sectionErrorState.remove("account")
+                boot.account?.let { accountState.value = it }
+                boot.settings?.settings?.let { s ->
+                    autoTradeEnabledState.value = s.enabled
+                    autoTradeEnvState.value = s.environment
+                }
+            }.onFailure {
+                if (accountState.value == null) sectionErrorState["account"] = "계좌 정보를 불러올 수 없습니다"
+            }
+            repository.getAutoTradeReservations(status = "PENDING").onSuccess { res ->
+                reservationCountState.value = res.total ?: 0
+            }
+        } finally {
+            accountMutex.unlock()
+        }
+    }
+
+    private suspend fun loadPerformance() {
+        repository.getAutoTradePerformance(days = 30).onSuccess { perf ->
+            sectionErrorState.remove("performance")
+            performanceState.value = perf.summary
+        }.onFailure {
+            if (performanceState.value == null) sectionErrorState["performance"] = "성과 데이터를 불러올 수 없습니다"
+        }
+    }
+
+    private suspend fun loadNewsClusters() {
+        repository.getNewsClusters(limit = 3).onSuccess { resp ->
+            sectionErrorState.remove("news")
+            newsClustersState.value = resp.clusters.orEmpty().take(3)
+        }.onFailure {
+            if (newsClustersState.value.isEmpty()) sectionErrorState["news"] = "뉴스를 불러올 수 없습니다"
+        }
+    }
+
+    private suspend fun loadMarketIndices() {
+        repository.getMarketIndices().onSuccess { resp ->
+            sectionErrorState.remove("indices")
+            liveIndicesState.value = resp
+            // 실시간 지수로 marketSnapshotState 덮어쓰기
+            val kospi = resp.kospi?.value
+            val kosdaq = resp.kosdaq?.value
+            val usdkrw = resp.usdkrw?.value
+            if (kospi != null || kosdaq != null || usdkrw != null) {
+                marketSnapshotState.value = com.example.stock.data.api.MarketSnapshotDto(
+                    kospiClose = kospi,
+                    kosdaqClose = kosdaq,
+                    usdkrwClose = usdkrw,
+                )
+            }
+        }.onFailure {
+            if (marketSnapshotState.value == null) sectionErrorState["indices"] = "시장 지수를 불러올 수 없습니다"
+        }
+    }
+
+    private suspend fun loadTradeFeed() {
+        repository.getAutoTradeFeed(limit = 20).onSuccess { resp: com.example.stock.data.api.TradeFeedResponseDto ->
+            sectionErrorState.remove("feed")
+            tradeFeedState.value = resp.items.orEmpty()
+        }.onFailure {
+            if (tradeFeedState.value.isEmpty()) sectionErrorState["feed"] = "매매 피드를 불러올 수 없습니다"
+        }
+    }
+
+    private suspend fun loadPnlCalendar() {
+        val seoul = kotlinx.datetime.TimeZone.of("Asia/Seoul")
+        val today = Clock.System.todayIn(seoul)
+        repository.getAutoTradePnlCalendar(year = today.year, month = today.monthNumber).onSuccess { resp: com.example.stock.data.api.PnlCalendarResponseDto ->
+            sectionErrorState.remove("calendar")
+            pnlCalendarState.value = resp
+        }.onFailure {
+            if (pnlCalendarState.value == null) sectionErrorState["calendar"] = "캘린더를 불러올 수 없습니다"
+        }
+    }
+
+    private fun startPolling() {
+        pollJob?.cancel()
+        pollJob = viewModelScope.launch {
+            while (isActive) {
+                fetchQuotes()
+                delay(30_000L)
+            }
+        }
+    }
+
+    private suspend fun fetchQuotes() {
+        val premarketTickers = premarketState.value.data?.daytradeTop?.mapNotNull { it.ticker }.orEmpty()
+        val favTickers = favoritesState.value.mapNotNull { it.ticker }
+        val all = (premarketTickers + favTickers).distinct().take(40)
+        if (all.isEmpty()) return
+        repository.getRealtimeQuotes(all).onSuccess { map -> quoteState.putAll(map) }
+    }
+
+    fun stopPolling() { pollJob?.cancel() }
+
+    override fun onCleared() {
+        loadJob?.cancel()
+        pollJob?.cancel()
+        super.onCleared()
+    }
+}
+
 class AppViewModelFactory(private val repository: StockRepository) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         return when {
+            modelClass.isAssignableFrom(HomeViewModel::class.java) -> HomeViewModel(repository) as T
             modelClass.isAssignableFrom(PremarketViewModel::class.java) -> PremarketViewModel(repository) as T
             modelClass.isAssignableFrom(EodViewModel::class.java) -> EodViewModel(repository) as T
             modelClass.isAssignableFrom(AlertsViewModel::class.java) -> AlertsViewModel(repository) as T

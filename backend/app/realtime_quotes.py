@@ -142,9 +142,19 @@ def _fetch_naver_quote(ticker: str, *, timeout_sec: float = _NAVER_TIMEOUT_FULL)
 
 
 def _norm_ticker(raw: object) -> str:
-    s = str(raw or "")
+    """티커 정규화: 6자리 숫자 종목코드 또는 알파벳+숫자 지수코드(KPI200, KQ150 등) 허용."""
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    # 6자리 숫자 종목코드 (기존 동작 유지)
     m = re.search(r"(\d{6})", s)
-    return m.group(1) if m else ""
+    if m:
+        return m.group(1)
+    # 알파벳+숫자 혼합 지수코드 (예: KPI200, KQ150)
+    m = re.search(r"([A-Za-z]+\d+)", s)
+    if m:
+        return m.group(1)
+    return ""
 
 
 def _fetch_naver_quotes_batch(

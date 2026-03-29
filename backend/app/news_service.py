@@ -5,6 +5,7 @@ import html
 import json
 import logging
 import re
+import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -137,35 +138,201 @@ def _normalize_title_prefix(title: str, limit: int = 30) -> str:
     return s[:limit]
 
 
+def _normalize_title_full(title: str) -> str:
+    """클러스터링용 전체 제목 정규화 (유사도 비교 대상)."""
+    s = (title or "").strip()
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"[^0-9A-Za-z가-힣 ]", "", s)
+    return s.lower().strip()
+
+
+def _title_similarity(a: str, b: str) -> float:
+    """자카드 유사도 기반 제목 비교 (외부 의존성 없음).
+
+    공백 단위 토큰화 후 자카드 계수를 계산한다.
+    짧은 제목은 bigram 기반으로 보완한다.
+    """
+    # 빈 제목이면 유사도 0 — 빈 문자열끼리 병합 방지
+    if not (a or "").strip() or not (b or "").strip():
+        return 0.0
+    na, nb = _normalize_title_full(a), _normalize_title_full(b)
+    if not na or not nb:
+        return 0.0
+
+    # 단어 단위 자카드
+    tokens_a, tokens_b = set(na.split()), set(nb.split())
+    if tokens_a and tokens_b:
+        jaccard_word = len(tokens_a & tokens_b) / len(tokens_a | tokens_b)
+    else:
+        jaccard_word = 0.0
+
+    # 문자 bigram 자카드 (짧은 제목 보완)
+    def _bigrams(s: str) -> set[str]:
+        s = s.replace(" ", "")
+        return {s[i:i+2] for i in range(len(s) - 1)} if len(s) >= 2 else {s}
+
+    bg_a, bg_b = _bigrams(na), _bigrams(nb)
+    jaccard_bg = len(bg_a & bg_b) / len(bg_a | bg_b) if (bg_a and bg_b) else 0.0
+
+    # 두 방식의 최대값 사용
+    return max(jaccard_word, jaccard_bg)
+
+
+# 유사도 임계값: 이 이상이면 같은 클러스터
+_CLUSTER_SIMILARITY_THRESHOLD = 0.7
+
+# 클러스터 대표 제목 → 클러스터 키 매핑 (인메모리 캐시, 날짜별)
+_cluster_title_cache: dict[str, list[tuple[str, str]]] = {}  # group_key -> [(title, cluster_key)]
+_cluster_cache_lock = Lock()
+
+
 def compute_cluster_key(theme_key: str, event_type: str, published_ymd: int, title: str) -> str:
-    prefix = _normalize_title_prefix(title, limit=30)
-    raw = f"{theme_key}|{event_type}|{published_ymd}|{prefix}"
-    return _md5(raw)
+    """유사도 기반 클러스터 키 생성.
+
+    동일 (theme, event, ymd) 그룹 내에서 기존 제목과 유사도 비교 후
+    0.7 이상이면 같은 클러스터 키를 재사용한다.
+    새 클러스터면 가장 긴 제목을 대표로 등록한다.
+    """
+    group_key = f"{theme_key}|{event_type}|{published_ymd}"
+
+    with _cluster_cache_lock:
+        titles = _cluster_title_cache.get(group_key, [])
+
+        # 빈 제목이면 유사도 비교 건너뛰고 고유 키 생성
+        if not (title or "").strip():
+            empty_ckey = _md5(f"{group_key}|empty|{uuid.uuid4().hex}")
+            titles.append(("", empty_ckey))
+            _cluster_title_cache[group_key] = titles
+            return empty_ckey
+
+        # 기존 클러스터 중 유사한 제목 검색
+        best_sim = 0.0
+        best_ckey = None
+        for existing_title, ckey in titles:
+            sim = _title_similarity(title, existing_title)
+            if sim > best_sim:
+                best_sim = sim
+                best_ckey = ckey
+
+        if best_sim >= _CLUSTER_SIMILARITY_THRESHOLD and best_ckey is not None:
+            # 기존 클러스터에 속함 — 대표 제목 갱신 (더 긴 제목으로)
+            for i, (et, ck) in enumerate(titles):
+                if ck == best_ckey and len(title) > len(et):
+                    titles[i] = (title, best_ckey)
+                    break
+            return best_ckey
+
+        # 새 클러스터 생성
+        prefix = _normalize_title_prefix(title, limit=30)
+        raw = f"{group_key}|{prefix}"
+        new_ckey = _md5(raw)
+        titles.append((title, new_ckey))
+        _cluster_title_cache[group_key] = titles
+        return new_ckey
+
+
+# --- 범용 부정어 리스트: 이벤트 키워드 근처(10자 이내)에 등장하면 부정 ---
+_NEGATION_WORDS = ["불가", "불발", "실패", "무산", "취소", "철회", "부진", "하락", "충격", "위기", "축소", "감소", "하향"]
+
+# 분류 규칙: (event_type, regex, 기본 confidence, 우선순위 — 낮을수록 높음)
+_EVENT_RULES: list[tuple[str, re.Pattern, float, int]] = [
+    ("earnings",   re.compile(r"(실적|잠정|영업이익|매출|가이던스)"),                              0.85, 1),
+    ("contract",   re.compile(r"(단일판매|공급계약|수주|계약)"),                                    0.80, 2),
+    ("buyback",    re.compile(r"(자사주|자기주식|소각|매입|취득|처분)"),                             0.80, 3),
+    ("offering",   re.compile(r"(유상증자|무상증자|CB|BW|전환사채|신주인수권)", re.IGNORECASE),      0.85, 4),
+    ("mna",        re.compile(r"(인수|합병|분할|M&A|영업양수도)", re.IGNORECASE),                   0.80, 5),
+    ("regulation", re.compile(r"(규제|제재|과징금|조사|검찰|금감원|금융감독원)"),                    0.75, 6),
+    ("lawsuit",    re.compile(r"(소송|분쟁|피소)"),                                                 0.75, 7),
+    ("report",     re.compile(r"(목표가|투자의견|리포트|커버리지)"),                                 0.70, 8),
+]
+
+
+def _has_negation(text: str, event_type: str) -> bool:
+    """범용 부정어 감지 — 이벤트 키워드 근처(10자 이내)에 부정어가 있으면 True.
+
+    모든 event_type에 대해 동일하게 동작한다.
+    _EVENT_RULES에서 해당 event_type의 regex로 키워드 위치를 찾고,
+    부정어가 키워드 앞뒤 10자 이내에 있으면 부정으로 판단한다.
+    """
+    if not text:
+        return False
+
+    # 해당 event_type의 키워드 패턴 찾기
+    evt_pattern = None
+    for evt, pat, _, _ in _EVENT_RULES:
+        if evt == event_type:
+            evt_pattern = pat
+            break
+    if evt_pattern is None:
+        return False
+
+    # 이벤트 키워드의 모든 매칭 위치 수집
+    keyword_matches = list(evt_pattern.finditer(text))
+    if not keyword_matches:
+        return False
+
+    # 부정어의 모든 출현 위치 수집
+    neg_positions: list[tuple[int, int]] = []
+    for neg_word in _NEGATION_WORDS:
+        start = 0
+        while True:
+            idx = text.find(neg_word, start)
+            if idx == -1:
+                break
+            neg_positions.append((idx, idx + len(neg_word)))
+            start = idx + 1
+
+    if not neg_positions:
+        return False
+
+    # 키워드와 부정어가 10자 이내에 있으면 부정
+    proximity = 10
+    for km in keyword_matches:
+        kw_start, kw_end = km.start(), km.end()
+        for neg_start, neg_end in neg_positions:
+            # 부정어가 키워드 앞에 있는 경우: 부정어 끝 ~ 키워드 시작
+            if neg_end <= kw_start and (kw_start - neg_end) <= proximity:
+                return True
+            # 부정어가 키워드 뒤에 있는 경우: 키워드 끝 ~ 부정어 시작
+            if neg_start >= kw_end and (neg_start - kw_end) <= proximity:
+                return True
+            # 부정어와 키워드가 겹치는 경우
+            if neg_start < kw_end and neg_end > kw_start:
+                return True
+    return False
 
 
 def classify_event_type(text: str) -> str:
+    """규칙 기반 이벤트 분류 — confidence score + 우선순위 + 부정어 처리."""
     t = (text or "").strip()
     if not t:
         return "misc"
 
-    # DART / RSS shared keywords
-    if re.search(r"(실적|잠정|영업이익|매출|가이던스)", t):
-        return "earnings"
-    if re.search(r"(단일판매|공급계약|수주|계약)", t):
-        return "contract"
-    if re.search(r"(자사주|자기주식|소각|매입|취득|처분)", t):
-        return "buyback"
-    if re.search(r"(유상증자|무상증자|CB|BW|전환사채|신주인수권)", t, flags=re.IGNORECASE):
-        return "offering"
-    if re.search(r"(인수|합병|분할|M&A|영업양수도)", t, flags=re.IGNORECASE):
-        return "mna"
-    if re.search(r"(규제|제재|과징금|조사|검찰|금감원|금융감독원)", t):
-        return "regulation"
-    if re.search(r"(소송|분쟁|피소)", t):
-        return "lawsuit"
-    if re.search(r"(목표가|투자의견|리포트|커버리지)", t):
-        return "report"
-    return "misc"
+    # 모든 매칭 규칙 수집
+    matches: list[tuple[str, float, int]] = []  # (event_type, confidence, priority)
+    for evt, pat, base_conf, priority in _EVENT_RULES:
+        m = pat.search(t)
+        if m:
+            conf = base_conf
+            # 부정어가 있으면 confidence 대폭 감소
+            if _has_negation(t, evt):
+                conf *= 0.3
+            # 매칭 키워드가 제목 앞쪽에 위치하면 가중
+            if m.start() < len(t) * 0.3:
+                conf = min(1.0, conf * 1.1)
+            matches.append((evt, conf, priority))
+
+    if not matches:
+        return "misc"
+
+    # 우선순위(낮을수록 우선) → confidence(높을수록 우선) 순으로 정렬
+    matches.sort(key=lambda x: (x[2], -x[1]))
+
+    # confidence가 0.5 미만이면 신뢰도 부족 → misc
+    best_evt, best_conf, _ = matches[0]
+    if best_conf < 0.5:
+        return "misc"
+    return best_evt
 
 
 def classify_theme_key(text: str) -> str:

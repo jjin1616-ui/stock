@@ -4,7 +4,7 @@ from contextlib import contextmanager
 import logging
 import os
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import settings
@@ -23,11 +23,32 @@ def _ensure_sqlite_dir() -> None:
 
 
 _ensure_sqlite_dir()
+_is_sqlite = settings.database_url.startswith("sqlite")
 engine = create_engine(
     settings.database_url,
     future=True,
-    connect_args={"check_same_thread": False} if settings.database_url.startswith("sqlite") else {},
+    connect_args=(
+        {
+            "check_same_thread": False,
+            "timeout": 15,  # lock 경합 시 즉시 실패하지 않고 대기
+        }
+        if _is_sqlite
+        else {}
+    ),
 )
+
+if _is_sqlite:
+    @event.listens_for(engine, "connect")
+    def _configure_sqlite(dbapi_connection, connection_record):  # type: ignore[no-redef]
+        del connection_record
+        cursor = dbapi_connection.cursor()
+        try:
+            # write 경합을 줄이기 위한 운영 기본값
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=15000")
+        finally:
+            cursor.close()
 # FastAPI 요청 처리에서 ORM 인스턴스를 세션 밖에서 참조하는 경우가 많으므로
 # commit 시 자동 만료(expire_on_commit=True 기본값)를 꺼서 DetachedInstanceError를 방지한다.
 SessionLocal = sessionmaker(

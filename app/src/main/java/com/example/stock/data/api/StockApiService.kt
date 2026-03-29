@@ -250,7 +250,9 @@ interface StockApiService {
     suspend fun updateAutoTradeBrokerCredential(@Body payload: AutoTradeBrokerCredentialUpdateDto): AutoTradeBrokerCredentialDto
 
     @GET("autotrade/bootstrap")
-    suspend fun getAutoTradeBootstrap(): AutoTradeBootstrapResponseDto
+    suspend fun getAutoTradeBootstrap(
+        @Query("fast") fast: Boolean = true,
+    ): AutoTradeBootstrapResponseDto
 
     @GET("autotrade/candidates")
     suspend fun getAutoTradeCandidates(
@@ -276,6 +278,17 @@ interface StockApiService {
     suspend fun cancelAutoTradeReservation(
         @Path("reservation_id") reservationId: Int,
     ): AutoTradeReservationActionResponseDto
+
+    @POST("autotrade/reservations/{reservation_id}/items/{ticker}/cancel")
+    suspend fun cancelAutoTradeReservationItem(
+        @Path("reservation_id") reservationId: Int,
+        @Path("ticker") ticker: String,
+    ): AutoTradeReservationActionResponseDto
+
+    @POST("autotrade/reservations/pending-cancel")
+    suspend fun cancelAutoTradePendingReservations(
+        @Body payload: AutoTradeReservationPendingCancelRequestDto,
+    ): AutoTradeReservationPendingCancelResponseDto
 
     @POST("autotrade/orders/{order_id}/cancel")
     suspend fun cancelAutoTradeOrder(
@@ -310,13 +323,33 @@ interface StockApiService {
     suspend fun getAutoTradeOrders(
         @Query("page") page: Int = 1,
         @Query("size") size: Int = 50,
+        @Query("environment") environment: String? = null,
+        @Query("status") status: String? = null,
+        @Query("ticker") ticker: String? = null,
     ): AutoTradeOrdersResponseDto
 
     @GET("autotrade/performance")
-    suspend fun getAutoTradePerformance(@Query("days") days: Int = 30): AutoTradePerformanceResponseDto
+    suspend fun getAutoTradePerformance(
+        @Query("days") days: Int = 30,
+        @Query("environment") environment: String? = null,
+    ): AutoTradePerformanceResponseDto
 
     @GET("autotrade/account")
     suspend fun getAutoTradeAccountSnapshot(@Query("environment") environment: String? = null): AutoTradeAccountSnapshotResponseDto
+
+    @GET("autotrade/feed")
+    suspend fun getAutoTradeFeed(
+        @Query("limit") limit: Int = 20,
+    ): TradeFeedResponseDto
+
+    @GET("autotrade/pnl-calendar")
+    suspend fun getAutoTradePnlCalendar(
+        @Query("year") year: Int,
+        @Query("month") month: Int,
+    ): PnlCalendarResponseDto
+
+    @GET("market/indices")
+    suspend fun getMarketIndices(): MarketIndicesResponseDto
 
     // --- News (Hybrid) ---
 

@@ -1,0 +1,2544 @@
+{
+  "id": "seed-manifest-v2",
+  "appName": "stock_v2",
+  "manifestVersion": 5,
+  "minSupportedVersion": 1,
+  "recommendedVersion": 20017,
+  "maintenanceMode": false,
+  "initialTabId": "home",
+  "loadingPolicy": {
+    "title": "v2 구성 불러오는 중",
+    "message": "실제 운영 메뉴와 공지를 먼저 준비합니다."
+  },
+  "notices": [],
+  "copyDictionary": {
+    "maintenance_title": "서비스 점검 중",
+    "recommended_update_title": "권장 업데이트 안내",
+    "recommended_update_body": "최신 버전으로 올리면 운영 메뉴 조합과 정책 반영이 더 안정적으로 동작합니다.",
+    "recommended_update_primary": "업데이트 보기",
+    "recommended_update_dismiss": "닫기",
+    "recommended_update_url": "http://16.176.148.77/update?profile=dev_local"
+  },
+  "featureFlags": {
+    "news_v2_enabled": true,
+    "autotrade_rules_v2": true,
+    "settings_policy_v2": true,
+    "full_menu_seed_v2": true
+  },
+  "pages": [
+    {
+      "id": "news_media_lab_page",
+      "title": "미디어 플레이 랩",
+      "subtitle": "탭 밖 extra page와 내부 secondary tab으로 새 페이지 타입을 검증합니다.",
+      "sections": [
+        {
+          "id": "media_lab_secondary",
+          "title": "내부 탭",
+          "description": "같은 extra page 안에서 개요, 미디어, 운영 블록을 전환합니다.",
+          "component": "SECONDARY_TAB_BAR",
+          "variantLabel": "secondary_tab_bar_v1",
+          "props": {
+            "options": "overview,media,ops",
+            "option_labels": "overview:개요|media:미디어|ops:운영",
+            "default_tab": "overview",
+            "hint": "선택한 내부 탭에 맞춰 아래 섹션만 남깁니다."
+          }
+        },
+        {
+          "id": "media_lab_intro",
+          "title": "extra page 요약",
+          "description": "하단 탭에 없는 별도 page id를 열고, 내부 탭으로 섹션 묶음을 전환하는 새 페이지 타입입니다.",
+          "component": "INFO_PANEL",
+          "variantLabel": "info_panel_media_lab_v1",
+          "props": {
+            "page_group": "overview",
+            "title": "새 page route",
+            "body": "OPEN_PAGE(page.id)가 tab id 우회가 아니라 manifest.pages에 선언된 extra page까지 열도록 확장됐습니다."
+          }
+        },
+        {
+          "id": "media_lab_loading",
+          "title": "로딩 상태",
+          "description": "미디어 page도 공통 skeleton renderer로 시작 상태를 만들 수 있습니다.",
+          "component": "LOADING_SKELETON_LIST",
+          "variantLabel": "loading_skeleton_media_v1",
+          "props": {
+            "page_group": "overview",
+            "skeleton_count": "2"
+          }
+        },
+        {
+          "id": "media_lab_player",
+          "title": "뉴스 미디어 카드",
+          "description": "앱 안에서 바로 영상 브리프를 재생하는 native media renderer입니다.",
+          "component": "MEDIA_PLAYER_CARD",
+          "variantLabel": "media_player_card_v1",
+          "actions": [
+            "COPY_TEXT",
+            "OPEN_EXTERNAL_URL"
+          ],
+          "props": {
+            "page_group": "media",
+            "media_url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+            "external_url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+            "media_caption": "운영 뉴스 요약 영상, 오디오 브리프, 교육 클립을 같은 native media card로 재생할 수 있습니다.",
+            "copy_text": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+          }
+        },
+        {
+          "id": "media_lab_error",
+          "title": "운영 재시도",
+          "description": "extra page에서도 공통 오류 패널과 retry action을 붙일 수 있습니다.",
+          "component": "ERROR_STATE_PANEL",
+          "variantLabel": "error_state_panel_v1",
+          "actions": [
+            "RETRY_LOAD"
+          ],
+          "props": {
+            "page_group": "ops",
+            "dataset": "news",
+            "error_title": "뉴스 메타 재검증",
+            "error_body": "미디어 카드와 연결된 뉴스 원천이 fallback일 때 같은 페이지에서 재시도를 붙입니다.",
+            "retry_label": "뉴스 다시 불러오기"
+          }
+        }
+      ]
+    },
+    {
+      "id": "stock_detail_page",
+      "title": "종목 상세",
+      "subtitle": "",
+      "props": {
+        "hide_global_notices": "true"
+      },
+      "sections": [
+        {
+          "id": "stock_detail_secondary",
+          "title": "상세 탭",
+          "description": "",
+          "component": "SECONDARY_TAB_BAR",
+          "variantLabel": "secondary_tab_bar_v1",
+          "props": {
+            "options": "overview,ai,investor,trend",
+            "option_labels": "overview:개요|ai:AI 신호|investor:투자자|trend:거래동향",
+            "default_tab": "overview"
+          }
+        },
+        {
+          "id": "stock_detail_summary",
+          "title": "종목 요약",
+          "description": "",
+          "component": "INFO_PANEL",
+          "variantLabel": "stock_detail_summary_v1",
+          "props": {
+            "page_group": "overview",
+            "hide_section_chrome": "true",
+            "dataset": "stock_detail_summary"
+          }
+        },
+        {
+          "id": "stock_detail_metrics",
+          "title": "핵심 수치",
+          "description": "",
+          "component": "METRIC_GRID",
+          "variantLabel": "stock_detail_metrics_v1",
+          "props": {
+            "page_group": "overview",
+            "dataset": "stock_detail_metrics"
+          }
+        },
+        {
+          "id": "stock_detail_chart",
+          "title": "가격 레벨",
+          "description": "",
+          "component": "CHART_PANEL_BASIC",
+          "variantLabel": "stock_detail_chart_v1",
+          "props": {
+            "page_group": "overview",
+            "dataset": "stock_detail_chart",
+            "range_options": "snapshot,levels",
+            "default_range": "snapshot",
+            "default_indicators": "avg"
+          }
+        },
+        {
+          "id": "stock_detail_news",
+          "title": "관련 뉴스",
+          "description": "",
+          "component": "TIMELINE_LIST",
+          "variantLabel": "stock_detail_news_v1",
+          "actions": [
+            "OPEN_DETAIL"
+          ],
+          "props": {
+            "page_group": "overview",
+            "dataset": "stock_detail_news",
+            "field_scope": "news",
+            "empty_text": "관련 뉴스가 없습니다.",
+            "show_polarity_bar": "true"
+          }
+        },
+        {
+          "id": "stock_detail_ai_summary",
+          "title": "AI 신호 요약",
+          "description": "",
+          "component": "INFO_PANEL",
+          "variantLabel": "stock_detail_ai_v1",
+          "props": {
+            "page_group": "ai",
+            "dataset": "stock_detail_ai"
+          }
+        },
+        {
+          "id": "stock_detail_ai_points",
+          "title": "판단 근거",
+          "description": "",
+          "component": "REPORT_LIST",
+          "variantLabel": "stock_detail_ai_points_v1",
+          "props": {
+            "page_group": "ai",
+            "dataset": "stock_detail_ai_points",
+            "empty_text": "표시할 신호 근거가 없습니다."
+          }
+        },
+        {
+          "id": "stock_detail_investor_flow",
+          "title": "투자자 수급",
+          "description": "",
+          "component": "CHART_PANEL_COMPARE",
+          "variantLabel": "stock_detail_investor_flow_v1",
+          "props": {
+            "page_group": "investor",
+            "dataset": "stock_detail_investor_flow",
+            "range_options": "3d,5d",
+            "default_range": "3d",
+            "empty_text": "투자자 수급 데이터가 없습니다."
+          }
+        },
+        {
+          "id": "stock_detail_investor_metrics",
+          "title": "투자자 포인트",
+          "description": "",
+          "component": "METRIC_GRID",
+          "variantLabel": "stock_detail_investor_metrics_v1",
+          "props": {
+            "page_group": "investor",
+            "dataset": "stock_detail_investor_metrics"
+          }
+        },
+        {
+          "id": "stock_detail_trend_summary",
+          "title": "거래 포인트",
+          "description": "",
+          "component": "INFO_PANEL",
+          "variantLabel": "stock_detail_trend_v1",
+          "props": {
+            "page_group": "trend",
+            "dataset": "stock_detail_trend"
+          }
+        },
+        {
+          "id": "stock_detail_trend_points",
+          "title": "거래동향",
+          "description": "",
+          "component": "REPORT_LIST",
+          "variantLabel": "stock_detail_trend_points_v1",
+          "props": {
+            "page_group": "trend",
+            "dataset": "stock_detail_trend_points",
+            "empty_text": "표시할 거래 포인트가 없습니다."
+          }
+        }
+      ]
+    }
+  ],
+  "tabs": [
+    {
+      "id": "home",
+      "label": "홈",
+      "icon": "HOME",
+      "page": {
+        "id": "home_page",
+        "title": "홈",
+        "subtitle": "",
+        "props": {
+          "shell_header_style": "home_profile",
+          "hide_global_notices": "true",
+          "profile_name": "제임스분석기",
+          "profile_badge": "PREMIUM INVESTOR",
+          "search_target_tab": "news",
+          "notification_target_tab": "alerts"
+        },
+        "sections": [
+          {
+            "id": "home_asset_summary",
+            "title": "수익내역",
+            "description": "",
+            "component": "METRIC_GRID",
+            "variantLabel": "home_asset_summary_v1",
+            "props": {
+              "hide_section_chrome": "true",
+              "design_card_type": "home_asset_summary_card",
+              "dataset": "home_asset_summary",
+              "header_action": "OPEN_TAB",
+              "header_action_label": "상세보기",
+              "header_target_tab": "holdings",
+              "primary_label": "총 자산",
+              "primary_key": "asset",
+              "primary_unit": "KRW",
+              "metric_count": "4",
+              "metric_1_label": "실현 손익",
+              "metric_1_key": "realized_pnl",
+              "metric_1_tone": "auto",
+              "metric_2_label": "평가 손익",
+              "metric_2_key": "unrealized_pnl",
+              "metric_2_tone": "auto",
+              "metric_3_label": "전일 손익",
+              "metric_3_key": "asset_change_krw",
+              "metric_3_tone": "auto",
+              "metric_3_secondary_key": "asset_change_pct",
+              "metric_3_secondary_tone": "auto",
+              "metric_4_label": "누적 수익률",
+              "metric_4_key": "real_eval_pnl_pct",
+              "metric_4_tone": "auto"
+            }
+          },
+          {
+            "id": "home_market_indices",
+            "title": "국내 시장 지표",
+            "description": "",
+            "component": "CHART_PANEL_BASIC",
+            "variantLabel": "home_market_indices_v1",
+            "props": {
+              "hide_section_chrome": "true",
+              "design_card_type": "home_market_index_card",
+              "dataset": "home_market_indices",
+              "as_of": "2026.03.13 09:10 기준",
+              "item_count": "2",
+              "item_1_label": "KOSPI",
+              "item_1_status": "장중",
+              "item_1_value": "2,650.40",
+              "item_1_change_pct": "+0.82%",
+              "item_1_change_amount": "+21.45",
+              "item_1_volume_label": "거래량",
+              "item_1_volume_value": "4.21억",
+              "item_1_series": "30,32,33,35,38,39,41,43",
+              "item_1_tone": "positive",
+              "item_2_label": "KOSDAQ",
+              "item_2_status": "장중",
+              "item_2_value": "870.20",
+              "item_2_change_pct": "-0.15%",
+              "item_2_change_amount": "-1.32",
+              "item_2_volume_label": "거래량",
+              "item_2_volume_value": "8.95억",
+              "item_2_series": "40,38,36,35,33,30,28,26",
+              "item_2_tone": "negative"
+            }
+          },
+          {
+            "id": "home_investor_flow",
+            "title": "실시간 투자자 수급 (억)",
+            "description": "",
+            "component": "CHART_PANEL_COMPARE",
+            "variantLabel": "home_investor_flow_v1",
+            "props": {
+              "hide_section_chrome": "true",
+              "design_card_type": "home_investor_flow_card",
+              "dataset": "home_investor_flow",
+              "bar_count": "3",
+              "bar_1_label": "개인",
+              "bar_1_value": "+1,240",
+              "bar_1_numeric": "1240",
+              "bar_1_tone": "positive",
+              "bar_2_label": "외국인",
+              "bar_2_value": "-842",
+              "bar_2_numeric": "-842",
+              "bar_2_tone": "negative",
+              "bar_3_label": "기관",
+              "bar_3_value": "-398",
+              "bar_3_numeric": "-398",
+              "bar_3_tone": "negative"
+            }
+          },
+          {
+            "id": "home_theme_chips",
+            "title": "오늘의 핵심 테마",
+            "description": "",
+            "component": "FILTER_CHIP_ROW",
+            "variantLabel": "home_theme_chip_row_v1",
+            "props": {
+              "hide_section_chrome": "true",
+              "design_card_type": "home_theme_chip_card",
+              "dataset": "home_themes",
+              "theme_items": "인공지능>+4.2%>positive>selected||HBM>+3.1%>positive||초전도체>-1.5%>negative||2차전지>+0.8%>positive"
+            }
+          },
+          {
+            "id": "home_watchlist",
+            "title": "주요 종목 실시간",
+            "description": "",
+            "component": "REPORT_LIST",
+            "variantLabel": "home_watchlist_v1",
+            "props": {
+              "hide_section_chrome": "true",
+              "design_card_type": "home_watchlist_card",
+              "dataset": "home_watchlist",
+              "header_action_label": "편집",
+              "header_action": "OPEN_TAB",
+              "header_target_tab": "eod",
+              "source_priority": "favorites,movers,supply,holdings",
+              "item_detail_entry": "page",
+              "item_actions": "OPEN_DETAIL,TOGGLE_FAVORITE",
+              "empty_text": "표시할 종목이 없습니다."
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "premarket",
+      "label": "단타",
+      "icon": "PREMARKET",
+      "page": {
+        "id": "premarket_page",
+        "title": "단타 시그널",
+        "subtitle": "",
+        "props": {
+          "hide_shell_header": "true",
+          "hide_global_notices": "true"
+        },
+        "sections": [
+          {
+            "id": "premarket_metrics",
+            "title": "단타 시그널",
+            "description": "",
+            "component": "METRIC_GRID",
+            "variantLabel": "metric_grid_daytrade",
+            "actions": [],
+            "props": {
+              "hide_section_chrome": "true",
+              "dataset": "premarket_daytrade",
+              "signal_badge": "실시간 신호",
+              "headline": "단타 시그널",
+              "refresh_label": "새로고침",
+              "metric_1_label": "후보",
+              "metric_2_label": "게이트",
+              "metric_3_label": "연결"
+            }
+          },
+          {
+            "id": "premarket_list",
+            "title": "주요 후보",
+            "description": "",
+            "component": "REPORT_LIST",
+            "variantLabel": "report_list_daytrade",
+            "actions": [],
+            "props": {
+              "hide_section_chrome": "true",
+              "dataset": "premarket_daytrade",
+              "intro_title": "주요 후보",
+              "intro_body": "",
+              "detail_action_label": "상세분석",
+              "item_detail_entry": "page",
+              "item_actions": "OPEN_DETAIL,TOGGLE_FAVORITE",
+              "empty_text": "현재 단타 후보가 없습니다."
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "supply",
+      "label": "수급",
+      "icon": "SUPPLY",
+      "page": {
+        "id": "supply_page",
+        "title": "수급",
+        "subtitle": "",
+        "sections": [
+          {
+            "id": "supply_metrics",
+            "title": "오늘 상태",
+            "description": "",
+            "component": "METRIC_GRID",
+            "variantLabel": "metric_grid_supply",
+            "props": {
+              "dataset": "supply",
+              "metric_1_label": "후보",
+              "metric_2_label": "연결",
+              "metric_3_label": "우세 흐름"
+            }
+          },
+          {
+            "id": "supply_compare_panel",
+            "title": "수급 비교 차트",
+            "description": "",
+            "component": "CHART_PANEL_COMPARE",
+            "variantLabel": "chart_panel_compare_supply_v1",
+            "props": {
+              "dataset": "supply_compare",
+              "default_range": "1w",
+              "default_indicators": "avg,delta",
+              "note": "",
+              "compare_1d": "외국인 3일합:480|기관 3일합:260|개인 3일합:-390|순합 5일:620",
+              "compare_1w": "외국인 3일합:820|기관 3일합:410|개인 3일합:-670|순합 5일:930",
+              "compare_1m": "외국인 3일합:1260|기관 3일합:740|개인 3일합:-1110|순합 5일:1580",
+              "compare_3m": "외국인 3일합:1790|기관 3일합:1160|개인 3일합:-1480|순합 5일:2140",
+              "compare_12m": "외국인 3일합:2480|기관 3일합:1690|개인 3일합:-2150|순합 5일:3010",
+              "api_profile_key": "full",
+              "legal_notice_text": ""
+            }
+          },
+          {
+            "id": "supply_search",
+            "title": "수급 검색",
+            "description": "",
+            "component": "SEARCH_BAR",
+            "variantLabel": "search_bar_supply_v1",
+            "props": {
+              "dataset": "supply",
+              "label": "수급 검색",
+              "placeholder": "삼성전자, 반도체, 외국인 주도"
+            }
+          },
+          {
+            "id": "supply_flow_filter",
+            "title": "흐름 필터",
+            "description": "",
+            "component": "SORT_CHIPS",
+            "variantLabel": "chip_row_supply_flow",
+            "props": {
+              "dataset": "supply",
+              "mode": "flow_filter",
+              "options": "all,동반 매수,외국인 주도,기관 주도,개인 역추세",
+              "preset_scope": "supply_flow"
+            }
+          },
+          {
+            "id": "supply_strength_filter",
+            "title": "강도 필터",
+            "description": "",
+            "component": "SORT_CHIPS",
+            "variantLabel": "",
+            "actions": [],
+            "props": {
+              "dataset": "supply",
+              "mode": "strength_filter",
+              "options": "all,strong,mid_plus,weak_cut",
+              "hide_section_chrome": "true"
+            }
+          },
+          {
+            "id": "supply_confidence_filter",
+            "title": "신뢰도 필터",
+            "description": "",
+            "component": "SORT_CHIPS",
+            "variantLabel": "",
+            "actions": [],
+            "props": {
+              "dataset": "supply",
+              "mode": "confidence_filter",
+              "options": "all,high_mid,high,mid,low",
+              "hide_section_chrome": "true"
+            }
+          },
+          {
+            "id": "supply_min_value_filter",
+            "title": "유동성 필터",
+            "description": "",
+            "component": "SORT_CHIPS",
+            "variantLabel": "",
+            "actions": [],
+            "props": {
+              "dataset": "supply",
+              "mode": "min_value_filter",
+              "options": "all,50m,100m,300m",
+              "hide_section_chrome": "true"
+            }
+          },
+          {
+            "id": "supply_contrarian_filter",
+            "title": "역추세 필터",
+            "description": "",
+            "component": "SORT_CHIPS",
+            "variantLabel": "",
+            "actions": [],
+            "props": {
+              "dataset": "supply",
+              "mode": "contrarian_filter",
+              "options": "include,exclude",
+              "hide_section_chrome": "true"
+            }
+          },
+          {
+            "id": "supply_dual_buy_filter",
+            "title": "동반매수 필터",
+            "description": "",
+            "component": "SORT_CHIPS",
+            "variantLabel": "",
+            "actions": [],
+            "props": {
+              "dataset": "supply",
+              "mode": "dual_buy_filter",
+              "options": "all,only",
+              "hide_section_chrome": "true"
+            }
+          },
+          {
+            "id": "supply_sort",
+            "title": "정렬",
+            "description": "",
+            "component": "SORT_CHIPS",
+            "variantLabel": "chip_row_supply_sort",
+            "props": {
+              "dataset": "supply",
+              "mode": "sort",
+              "options": "flow_score_desc,net_3d_desc,chg_pct_desc,value_desc"
+            }
+          },
+          {
+            "id": "supply_live_list",
+            "title": "수급 랭킹",
+            "description": "",
+            "component": "STOCK_CARD_RICH",
+            "variantLabel": "stock_card_rich_supply_v1",
+            "actions": [
+              "REFRESH_PAGE",
+              "APPLY_FILTER",
+              "APPLY_SORT"
+            ],
+            "props": {
+              "dataset": "supply",
+              "item_detail_entry": "page",
+              "item_actions": "OPEN_DETAIL,TOGGLE_FAVORITE",
+              "empty_text": "조건에 맞는 수급 후보가 없습니다."
+            }
+          },
+          {
+            "id": "supply_hero",
+            "title": "수급 헤더",
+            "description": "",
+            "component": "HERO_HEADER",
+            "variantLabel": "supply_hero_v1",
+            "props": {
+              "variant_scope": "hero_header",
+              "headline": "자금 흐름을 먼저 읽고 후보를 압축합니다.",
+              "body": ""
+            }
+          }
+        ],
+        "props": {
+          "hide_global_notices": "true"
+        }
+      }
+    },
+    {
+      "id": "autotrade",
+      "label": "자동",
+      "icon": "AUTOTRADE",
+      "page": {
+        "id": "autotrade_page",
+        "title": "자동매매",
+        "subtitle": "",
+        "props": {
+          "hide_global_notices": "true"
+        },
+        "sections": [
+          {
+            "id": "autotrade_center_metrics",
+            "title": "오늘 상태",
+            "description": "",
+            "component": "METRIC_GRID",
+            "variantLabel": "metric_grid_autotrade_center_v1",
+            "props": {
+              "dataset": "autotrade_center",
+              "metric_1_label": "규칙",
+              "metric_2_label": "브로커",
+              "metric_3_label": "차단"
+            }
+          },
+          {
+            "id": "autotrade_broker_info",
+            "title": "실행 환경과 브로커",
+            "description": "",
+            "component": "INFO_PANEL",
+            "variantLabel": "info_panel_autotrade_broker_v1",
+            "props": {
+              "dataset": "autotrade_broker",
+              "hide_section_chrome": "true"
+            }
+          },
+          {
+            "id": "autotrade_account_info",
+            "title": "계좌 자산",
+            "description": "",
+            "component": "INFO_PANEL",
+            "variantLabel": "info_panel_autotrade_account_v1",
+            "props": {
+              "dataset": "autotrade_account",
+              "hide_section_chrome": "true"
+            }
+          },
+          {
+            "id": "autotrade_performance_metrics",
+            "title": "최근 성과",
+            "description": "",
+            "component": "METRIC_GRID",
+            "variantLabel": "metric_grid_autotrade_performance_v1",
+            "props": {
+              "dataset": "autotrade_performance",
+              "metric_1_label": "30일 손익",
+              "metric_2_label": "누적 ROI",
+              "metric_3_label": "승률"
+            }
+          },
+          {
+            "id": "auto_form",
+            "title": "실행 설정",
+            "description": "",
+            "component": "MODAL_FORM_SHEET",
+            "variantLabel": "modal_form_sheet_v1",
+            "actions": [
+              "OPEN_SHEET",
+              "PREVIEW_RULE_RESULT",
+              "RUN_AUTOTRADE_DRY_RUN",
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "seed_krw,order_budget_krw,take_profit_pct,stop_loss_pct,trailing_stop_pct,cooldown_min,max_positions,reentry_policy,allowed_sessions,api_profile_key,autotrade_source_set,source_weight_daytrade,source_weight_movers,source_weight_news,source_weight_favorites,allow_market_order,max_daily_loss_pct,ticker_picker,ticker_group_picker",
+              "summary_title": "현재 설정",
+              "sheet_title": "실행 설정",
+              "sheet_subtitle": "예산, 손익 기준, 후보 소스를 조정합니다.",
+              "preview_title": "점검 전 확인",
+              "submit_title": "설정 저장",
+              "submit_contract": "autotrade_settings",
+              "field_label_api_profile_key": "후보 조회 속도",
+              "field_helper_api_profile_key": "",
+              "field_mode_ticker_picker": "native_ticker_single",
+              "field_mode_ticker_group_picker": "native_ticker_multi",
+              "field_label_ticker_group_picker": "관심 종목 묶음",
+              "field_helper_ticker_picker": "",
+              "field_helper_ticker_group_picker": ""
+            }
+          },
+          {
+            "id": "auto_execute_confirm",
+            "title": "실행",
+            "description": "",
+            "component": "BOTTOM_SHEET_CONFIRM",
+            "variantLabel": "bottom_sheet_confirm_v1",
+            "actions": [
+              "OPEN_SHEET",
+              "SWITCH_ENVIRONMENT",
+              "REQUEST_BIOMETRIC_UNLOCK",
+              "RUN_AUTOTRADE_EXECUTE"
+            ],
+            "props": {
+              "fields": "warning_message_set,confirmation_step_count,environment_policy",
+              "execute_contract": "autotrade_run",
+              "confirm_title": "자동매매 실행",
+              "confirm_primary_label": "실행",
+              "completion_title": "실행 요청 완료",
+              "completion_body": "실행 요청을 접수했습니다.",
+              "field_default_environment_policy": "demo"
+            }
+          },
+          {
+            "id": "autotrade_candidates",
+            "title": "실행 후보",
+            "description": "",
+            "component": "REPORT_LIST",
+            "variantLabel": "report_list_autotrade_candidates_v1",
+            "props": {
+              "dataset": "autotrade_candidates"
+            }
+          },
+          {
+            "id": "autotrade_order_status",
+            "title": "최근 주문",
+            "description": "",
+            "component": "ORDER_STATUS_CARD",
+            "variantLabel": "order_status_card_autotrade_v1",
+            "props": {
+              "source_scope": "autotrade"
+            }
+          },
+          {
+            "id": "autotrade_reservation_status",
+            "title": "예약",
+            "description": "",
+            "component": "RESERVATION_CARD",
+            "variantLabel": "reservation_card_autotrade_v1",
+            "props": {
+              "source_scope": "autotrade"
+            }
+          },
+          {
+            "id": "autotrade_symbol_rules",
+            "title": "종목 규칙",
+            "description": "",
+            "component": "REPORT_LIST",
+            "variantLabel": "report_list_autotrade_symbol_rules_v1",
+            "props": {
+              "dataset": "autotrade_symbol_rules",
+              "role_scope": "master,admin"
+            }
+          },
+          {
+            "id": "autotrade_symbol_rule_form",
+            "title": "규칙 추가",
+            "description": "",
+            "component": "FORM_ENTRY",
+            "variantLabel": "form_entry_autotrade_symbol_rule_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "ticker_picker,take_profit_pct,stop_loss_pct",
+              "summary_title": "규칙 확인",
+              "submit_title": "규칙 저장",
+              "submit_contract": "autotrade_symbol_rule",
+              "field_mode_ticker_picker": "native_ticker_single",
+              "field_label_ticker_picker": "대상 종목",
+              "field_helper_ticker_picker": "",
+              "field_default_take_profit_pct": "7.0",
+              "field_default_stop_loss_pct": "5.0",
+              "role_scope": "master,admin"
+            }
+          },
+          {
+            "id": "autotrade_reentry_blocks",
+            "title": "재진입 차단",
+            "description": "",
+            "component": "REPORT_LIST",
+            "variantLabel": "report_list_autotrade_reentry_v1",
+            "props": {
+              "dataset": "autotrade_reentry_blocks",
+              "role_scope": "master,admin"
+            }
+          },
+          {
+            "id": "autotrade_reentry_release_form",
+            "title": "차단 해제",
+            "description": "",
+            "component": "FORM_ENTRY",
+            "variantLabel": "form_entry_autotrade_reentry_release_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "environment_policy,ticker_picker",
+              "summary_title": "차단 해제 확인",
+              "submit_title": "차단 해제",
+              "submit_contract": "autotrade_reentry_release",
+              "field_default_environment_policy": "both",
+              "field_mode_ticker_picker": "native_ticker_single",
+              "field_label_environment_policy": "해제 대상 환경",
+              "field_label_ticker_picker": "대상 종목(선택)",
+              "field_helper_ticker_picker": "",
+              "role_scope": "master,admin"
+            }
+          },
+          {
+            "id": "auto_rule_card",
+            "title": "운영 원칙",
+            "description": "",
+            "component": "RULE_CARD",
+            "variantLabel": "rule_card_warning",
+            "actions": [
+              "OPEN_DIALOG",
+              "PREVIEW_RULE_RESULT"
+            ],
+            "props": {
+              "headline": "위험 액션은 앱이 실행하고 정책은 서버가 결정",
+              "body": "실행 플로우와 확인 UI는 앱 고정, 규칙값과 문구는 manifest와 폼 스키마로 조정합니다.",
+              "preview_target_section_id": "auto_form",
+              "dialog_title": "자동매매 운영 원칙",
+              "dialog_body": "정책 값은 manifest와 동적 폼으로 바꾸되, 실제 실행과 최종 확인 UI는 앱이 고정 소유합니다.",
+              "role_scope": "master,admin"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "holdings",
+      "label": "보유",
+      "icon": "HOLDINGS",
+      "page": {
+        "id": "holdings_page",
+        "title": "보유",
+        "subtitle": "",
+        "sections": [
+          {
+            "id": "holdings_metrics",
+            "title": "요약 지표",
+            "description": "",
+            "component": "METRIC_GRID",
+            "variantLabel": "metric_grid_holdings",
+            "props": {
+              "dataset": "holdings",
+              "metric_1_label": "잔고",
+              "metric_2_label": "손익",
+              "metric_3_label": "예약 상태",
+              "metric_1_key": "asset",
+              "metric_2_key": "pnl",
+              "metric_3_key": "reservation_status"
+            }
+          },
+          {
+            "id": "holdings_search",
+            "title": "보유 검색",
+            "description": "",
+            "component": "SEARCH_BAR",
+            "variantLabel": "search_bar_holdings_v1",
+            "props": {
+              "dataset": "holdings",
+              "label": "보유 검색",
+              "placeholder": "삼성전자, 모의, 실계좌"
+            }
+          },
+          {
+            "id": "holdings_position_card",
+            "title": "대표 보유 카드",
+            "description": "",
+            "component": "HOLDING_CARD",
+            "variantLabel": "holding_card_v1",
+            "props": {
+              "hide_section_chrome": "true",
+              "item_detail_entry": "page",
+              "item_actions": "OPEN_DETAIL,TOGGLE_FAVORITE"
+            }
+          },
+          {
+            "id": "holdings_order_status_card",
+            "title": "최근 주문",
+            "description": "",
+            "component": "ORDER_STATUS_CARD",
+            "variantLabel": "order_status_card_v1",
+            "actions": [
+              "OPEN_DETAIL",
+              "REQUEST_BIOMETRIC_UNLOCK",
+              "CANCEL_ORDER"
+            ],
+            "props": {
+              "hide_section_chrome": "true"
+            }
+          },
+          {
+            "id": "holdings_reservation_card",
+            "title": "예약 현황",
+            "description": "",
+            "component": "RESERVATION_CARD",
+            "variantLabel": "reservation_card_v1",
+            "actions": [
+              "OPEN_DETAIL",
+              "REQUEST_BIOMETRIC_UNLOCK",
+              "CANCEL_RESERVATION"
+            ],
+            "props": {
+              "hide_section_chrome": "true",
+              "sheet_title": "예약 상세",
+              "empty_text": "현재 표시할 예약이 없습니다."
+            }
+          },
+          {
+            "id": "holdings_environment_filter",
+            "title": "환경 필터",
+            "description": "",
+            "component": "SORT_CHIPS",
+            "variantLabel": "chip_row_holdings_environment",
+            "props": {
+              "dataset": "holdings",
+              "mode": "environment_filter",
+              "options": "all,demo,prod",
+              "preset_scope": "holdings_environment"
+            }
+          },
+          {
+            "id": "holdings_sort",
+            "title": "정렬",
+            "description": "",
+            "component": "SORT_CHIPS",
+            "variantLabel": "chip_row_holdings_sort",
+            "props": {
+              "dataset": "holdings",
+              "mode": "sort",
+              "options": "eval_desc,pnl_desc,pnl_pct_desc,qty_desc,current_price_desc,ticker,name,source"
+            }
+          },
+          {
+            "id": "holdings_live_list",
+            "title": "보유/최근 주문 상태",
+            "description": "",
+            "component": "REPORT_LIST",
+            "variantLabel": "report_list_holdings",
+            "actions": [
+              "REFRESH_PAGE",
+              "APPLY_FILTER",
+              "APPLY_SORT"
+            ],
+            "props": {
+              "dataset": "holdings",
+              "item_detail_entry": "page",
+              "item_actions": "OPEN_DETAIL,TOGGLE_FAVORITE",
+              "empty_text": "조건에 맞는 보유 종목이 없습니다."
+            }
+          },
+          {
+            "id": "holdings_hero",
+            "title": "보유 헤더",
+            "description": "",
+            "component": "HERO_HEADER",
+            "variantLabel": "holdings_hero_v1",
+            "props": {
+              "variant_scope": "hero_header",
+              "headline": "주문과 예약 상태를 함께 확인합니다.",
+              "body": ""
+            }
+          }
+        ],
+        "props": {
+          "hide_global_notices": "true"
+        }
+      }
+    },
+    {
+      "id": "movers",
+      "label": "급등",
+      "icon": "MOVERS",
+      "page": {
+        "id": "movers_page",
+        "title": "급등",
+        "subtitle": "",
+        "sections": [
+          {
+            "id": "movers_metrics",
+            "title": "오늘 상태",
+            "description": "",
+            "component": "METRIC_GRID",
+            "variantLabel": "metric_grid_movers",
+            "actions": [
+              "REFRESH_PAGE"
+            ],
+            "props": {
+              "dataset": "movers",
+              "metric_1_label": "후보",
+              "metric_2_label": "세션",
+              "metric_3_label": "연결"
+            }
+          },
+          {
+            "id": "movers_live_list",
+            "title": "급등 랭킹",
+            "description": "",
+            "component": "STOCK_CARD_RICH",
+            "variantLabel": "stock_card_rich_movers_v1",
+            "actions": [
+              "REFRESH_PAGE"
+            ],
+            "props": {
+              "dataset": "movers",
+              "item_detail_entry": "page",
+              "item_actions": "OPEN_DETAIL,TOGGLE_FAVORITE",
+              "empty_text": "현재 급등 후보가 없습니다."
+            }
+          },
+          {
+            "id": "movers_hero",
+            "title": "급등 헤더",
+            "description": "",
+            "component": "HERO_HEADER",
+            "variantLabel": "movers_hero_v1",
+            "props": {
+              "variant_scope": "hero_header",
+              "headline": "강한 흐름 종목을 빠르게 모아 봅니다.",
+              "body": ""
+            }
+          }
+        ],
+        "props": {
+          "hide_global_notices": "true"
+        }
+      }
+    },
+    {
+      "id": "us",
+      "label": "미장",
+      "icon": "US",
+      "page": {
+        "id": "us_page",
+        "title": "미국장",
+        "subtitle": "",
+        "sections": [
+          {
+            "id": "us_metrics",
+            "title": "오늘 상태",
+            "description": "",
+            "component": "METRIC_GRID",
+            "variantLabel": "metric_grid_us",
+            "actions": [
+              "REFRESH_PAGE"
+            ],
+            "props": {
+              "dataset": "us",
+              "metric_1_label": "반환 건수",
+              "metric_2_label": "읽은 건수",
+              "metric_3_label": "대표 신호"
+            }
+          },
+          {
+            "id": "us_sort",
+            "title": "미장 정렬",
+            "description": "",
+            "component": "SORT_CHIPS",
+            "variantLabel": "chip_row_us_sort",
+            "actions": [
+              "APPLY_SORT",
+              "RESET_FILTERS"
+            ],
+            "props": {
+              "dataset": "us",
+              "mode": "sort",
+              "options": "signal_desc,value_desc,repeat_desc,date_desc,ticker,name"
+            }
+          },
+          {
+            "id": "us_live_list",
+            "title": "주요 내부자 흐름",
+            "description": "",
+            "component": "REPORT_LIST",
+            "variantLabel": "report_list_us",
+            "actions": [
+              "REFRESH_PAGE"
+            ],
+            "props": {
+              "dataset": "us",
+              "empty_text": "현재 미장 후보가 없습니다."
+            }
+          },
+          {
+            "id": "us_hero",
+            "title": "미장 헤더",
+            "description": "",
+            "component": "HERO_HEADER",
+            "variantLabel": "us_hero_v1",
+            "props": {
+              "variant_scope": "hero_header",
+              "headline": "미국장 핵심 흐름을 빠르게 확인합니다.",
+              "body": ""
+            }
+          }
+        ],
+        "props": {
+          "hide_global_notices": "true"
+        }
+      }
+    },
+    {
+      "id": "news",
+      "label": "뉴스",
+      "icon": "NEWS",
+      "page": {
+        "id": "news_page",
+        "title": "뉴스",
+        "subtitle": "",
+        "sections": [
+          {
+            "id": "news_timeline",
+            "title": "오늘의 뉴스",
+            "description": "",
+            "component": "NEWS_CLUSTER_CARD",
+            "variantLabel": "news_cluster_card_v1",
+            "actions": [
+              "OPEN_DETAIL",
+              "OPEN_SHEET"
+            ],
+            "props": {
+              "field_scope": "news",
+              "search_scope_key": "news",
+              "fields": "news_layout_mode,news_source_mode,news_cluster_window",
+              "field_default_news_layout_mode": "timeline",
+              "field_default_news_source_mode": "cluster_first",
+              "field_default_news_cluster_window": "180",
+              "empty_text": "현재 조건에 맞는 기사가 없습니다."
+            }
+          },
+          {
+            "id": "news_summary",
+            "title": "오늘 뉴스",
+            "description": "",
+            "component": "NOTICE_BANNER",
+            "variantLabel": "notice_banner_news_summary_v1",
+            "actions": [
+              "SHOW_NOTICE_DETAIL"
+            ],
+            "props": {
+              "dataset": "news_summary",
+              "field_scope": "news",
+              "search_scope_key": "news",
+              "dialog_title": "오늘 뉴스",
+              "dialog_button_label": "자세히"
+            }
+          },
+          {
+            "id": "news_metrics",
+            "title": "뉴스 지표",
+            "description": "",
+            "component": "METRIC_GRID",
+            "variantLabel": "metric_grid_news",
+            "props": {
+              "dataset": "news",
+              "field_scope": "news",
+              "search_scope_key": "news",
+              "metric_1_label": "기사 수",
+              "metric_2_label": "출처 우세",
+              "metric_3_label": "리스크"
+            }
+          },
+          {
+            "id": "news_search",
+            "title": "검색",
+            "description": "",
+            "component": "SEARCH_BAR",
+            "variantLabel": "search_bar_advanced_v1",
+            "actions": [
+              "APPLY_FILTER"
+            ],
+            "props": {
+              "dataset": "news",
+              "placeholder": "종목, 이슈, 기사 제목 검색",
+              "label": "뉴스 검색",
+              "preset_scope": "news_search",
+              "suggestions": "실적,공시,반도체,SEC"
+            }
+          },
+          {
+            "id": "news_sort",
+            "title": "정렬",
+            "description": "",
+            "component": "SORT_CHIPS",
+            "variantLabel": "sort_chip_group_v1",
+            "actions": [
+              "APPLY_SORT"
+            ],
+            "props": {
+              "options": "hot,latest,impact",
+              "default": "hot"
+            }
+          }
+        ],
+        "props": {
+          "hide_global_notices": "true"
+        }
+      }
+    },
+    {
+      "id": "longterm",
+      "label": "장투",
+      "icon": "LONGTERM",
+      "page": {
+        "id": "longterm_page",
+        "title": "장투",
+        "subtitle": "",
+        "sections": [
+          {
+            "id": "longterm_metrics",
+            "title": "오늘 상태",
+            "description": "",
+            "component": "METRIC_GRID",
+            "variantLabel": "metric_grid_longterm",
+            "actions": [
+              "REFRESH_PAGE"
+            ],
+            "props": {
+              "dataset": "premarket_longterm",
+              "metric_1_label": "장기 후보",
+              "metric_2_label": "대표 테마",
+              "metric_3_label": "연결"
+            }
+          },
+          {
+            "id": "longterm_chart_panel",
+            "title": "장투 차트",
+            "description": "",
+            "component": "CHART_PANEL_BASIC",
+            "variantLabel": "chart_panel_basic_longterm_v1",
+            "props": {
+              "dataset": "premarket_longterm",
+              "default_range": "3m",
+              "default_indicators": "avg,band,volume",
+              "note": "",
+              "series_1d": "101,102,103,104,103,105",
+              "labels_1d": "D-5,D-4,D-3,D-2,D-1,오늘",
+              "volume_1d": "18,22,20,26,24,28",
+              "series_1w": "99,101,103,104,106,108",
+              "labels_1w": "W-5,W-4,W-3,W-2,W-1,이번주",
+              "volume_1w": "22,26,29,32,38,43",
+              "series_1m": "96,98,101,104,106,109",
+              "labels_1m": "M-5,M-4,M-3,M-2,M-1,현재",
+              "volume_1m": "26,28,34,40,46,52",
+              "series_3m": "93,96,100,104,109,114",
+              "labels_3m": "Q-5,Q-4,Q-3,Q-2,Q-1,현재",
+              "volume_3m": "30,33,38,44,51,59",
+              "series_12m": "88,92,97,103,110,118",
+              "labels_12m": "Y-5,Y-4,Y-3,Y-2,Y-1,현재",
+              "volume_12m": "34,39,45,52,61,70",
+              "summary_items": "매수 구간:107,000 - 110,000|12M 목표:145,000|손절 기준:98,000",
+              "api_profile_key": "light",
+              "legal_notice_text": "장기 후보 차트는 운영 기준 구간 예시이며 실제 투자 판단의 최종 책임은 사용자에게 있습니다."
+            }
+          },
+          {
+            "id": "longterm_live_list",
+            "title": "장기 후보",
+            "description": "",
+            "component": "REPORT_LIST",
+            "variantLabel": "report_list_longterm",
+            "actions": [
+              "REFRESH_PAGE"
+            ],
+            "props": {
+              "dataset": "premarket_longterm",
+              "item_detail_entry": "page",
+              "item_actions": "OPEN_DETAIL,TOGGLE_FAVORITE",
+              "empty_text": "현재 장기 후보가 없습니다."
+            }
+          },
+          {
+            "id": "longterm_hero",
+            "title": "장투 헤더",
+            "description": "",
+            "component": "HERO_HEADER",
+            "variantLabel": "longterm_hero_v1",
+            "props": {
+              "variant_scope": "hero_header",
+              "headline": "장기 후보와 기준 구간을 한 번에 확인합니다.",
+              "body": ""
+            }
+          }
+        ],
+        "props": {
+          "hide_global_notices": "true"
+        }
+      }
+    },
+    {
+      "id": "papers",
+      "label": "논문",
+      "icon": "PAPERS",
+      "page": {
+        "id": "papers_page",
+        "title": "논문",
+        "subtitle": "",
+        "sections": [
+          {
+            "id": "papers_metrics",
+            "title": "오늘 리포트",
+            "description": "",
+            "component": "METRIC_GRID",
+            "variantLabel": "metric_grid_papers",
+            "actions": [
+              "REFRESH_PAGE"
+            ],
+            "props": {
+              "dataset": "premarket_papers",
+              "metric_1_label": "테마",
+              "metric_2_label": "규칙",
+              "metric_3_label": "갱신"
+            }
+          },
+          {
+            "id": "papers_live_list",
+            "title": "리포트 목록",
+            "description": "",
+            "component": "REPORT_LIST",
+            "variantLabel": "report_list_papers",
+            "actions": [
+              "REFRESH_PAGE"
+            ],
+            "props": {
+              "dataset": "premarket_papers",
+              "empty_text": "표시할 리포트가 없습니다."
+            }
+          },
+          {
+            "id": "papers_hero",
+            "title": "논문 헤더",
+            "description": "",
+            "component": "HERO_HEADER",
+            "variantLabel": "papers_hero_v1",
+            "props": {
+              "variant_scope": "hero_header",
+              "headline": "오늘 리포트와 규칙을 한 번에 확인합니다.",
+              "body": ""
+            }
+          }
+        ],
+        "props": {
+          "hide_global_notices": "true"
+        }
+      }
+    },
+    {
+      "id": "eod",
+      "label": "관심",
+      "icon": "EOD",
+      "page": {
+        "id": "eod_page",
+        "title": "관심",
+        "subtitle": "",
+        "sections": [
+          {
+            "id": "eod_metrics",
+            "title": "오늘 상태",
+            "description": "",
+            "component": "METRIC_GRID",
+            "variantLabel": "metric_grid_eod",
+            "actions": [
+              "REFRESH_PAGE"
+            ],
+            "props": {
+              "dataset": "favorites",
+              "metric_1_label": "관심 종목",
+              "metric_2_label": "상승",
+              "metric_3_label": "연결"
+            }
+          },
+          {
+            "id": "eod_group_filter",
+            "title": "관심 필터",
+            "description": "",
+            "component": "FILTER_CHIP_ROW",
+            "variantLabel": "filter_chip_row_eod_group",
+            "actions": [
+              "APPLY_FILTER",
+              "RESET_FILTERS"
+            ],
+            "props": {
+              "dataset": "favorites",
+              "mode": "group_filter",
+              "preset_scope": "favorites_group",
+              "options": "all,premarket,supply,movers,news,holdings,autotrade"
+            }
+          },
+          {
+            "id": "eod_live_list",
+            "title": "관심 목록",
+            "description": "",
+            "component": "STOCK_CARD_RICH",
+            "variantLabel": "stock_card_rich_favorites_v1",
+            "actions": [
+              "REFRESH_PAGE"
+            ],
+            "props": {
+              "dataset": "favorites",
+              "item_detail_entry": "page",
+              "item_actions": "OPEN_DETAIL,TOGGLE_FAVORITE",
+              "empty_text": "등록된 관심 종목이 없습니다."
+            }
+          },
+          {
+            "id": "eod_hero",
+            "title": "관심 헤더",
+            "description": "",
+            "component": "HERO_HEADER",
+            "variantLabel": "eod_hero_v1",
+            "props": {
+              "variant_scope": "hero_header",
+              "headline": "관심 종목을 한 곳에서 빠르게 확인합니다.",
+              "body": ""
+            }
+          }
+        ],
+        "props": {
+          "hide_global_notices": "true"
+        }
+      }
+    },
+    {
+      "id": "alerts",
+      "label": "알림",
+      "icon": "ALERTS",
+      "page": {
+        "id": "alerts_page",
+        "title": "알림",
+        "subtitle": "",
+        "sections": [
+          {
+            "id": "alerts_metrics",
+            "title": "오늘 상태",
+            "description": "",
+            "component": "METRIC_GRID",
+            "variantLabel": "metric_grid_alerts",
+            "actions": [
+              "REFRESH_PAGE"
+            ],
+            "props": {
+              "dataset": "alerts",
+              "metric_1_label": "알림 수",
+              "metric_2_label": "인증 상태",
+              "metric_3_label": "연결"
+            }
+          },
+          {
+            "id": "alerts_filter",
+            "title": "알림 필터",
+            "description": "",
+            "component": "SORT_CHIPS",
+            "variantLabel": "sort_chips_alerts",
+            "props": {
+              "dataset": "alerts",
+              "mode": "type_filter",
+              "options": "all,TRIGGER,PREMARKET,EOD",
+              "preset_scope": "alerts_type"
+            }
+          },
+          {
+            "id": "alerts_live_list",
+            "title": "알림 목록",
+            "description": "",
+            "component": "TIMELINE_LIST",
+            "variantLabel": "timeline_list_alerts",
+            "actions": [
+              "REFRESH_PAGE"
+            ],
+            "props": {
+              "dataset": "alerts",
+              "field_scope": "alerts",
+              "item_actions": "OPEN_TAB,OPEN_DETAIL,OPEN_EXTERNAL_URL",
+              "empty_text": "현재 표시할 알림이 없습니다."
+            }
+          },
+          {
+            "id": "alerts_notice",
+            "title": "알림 운영 공지",
+            "description": "",
+            "component": "NOTICE_BANNER",
+            "variantLabel": "notice_banner_alerts",
+            "props": {
+              "text": "알림 채널 구조는 앱이 유지하고, 문구와 딥링크 정책은 서버 설정으로 교체합니다."
+            }
+          }
+        ],
+        "props": {
+          "hide_global_notices": "true"
+        }
+      }
+    },
+    {
+      "id": "settings",
+      "label": "설정",
+      "icon": "SETTINGS",
+      "page": {
+        "id": "settings_page",
+        "title": "설정",
+        "subtitle": "계정, 업데이트, 화면 동작을 여기서 확인하고 조절합니다.",
+        "sections": [
+          {
+            "id": "settings_info",
+            "title": "계정 및 앱 상태",
+            "description": "로그인 상태와 앱 연결 정보를 한 번에 확인합니다.",
+            "component": "INFO_PANEL",
+            "variantLabel": "info_panel_v2",
+            "actions": [
+              "REFRESH_PAGE"
+            ],
+            "props": {
+              "show_reload": "true",
+              "show_auth": "true",
+              "session_note": "로그인 문제가 있으면 여기서 다시 확인하거나 로그인 화면으로 이동할 수 있습니다."
+            }
+          },
+          {
+            "id": "settings_notice",
+            "title": "운영 공지",
+            "description": "긴급 점검과 중요 공지를 여기서 확인합니다.",
+            "component": "NOTICE_DIALOG",
+            "variantLabel": "notice_dialog_amber",
+            "actions": [
+              "OPEN_DIALOG",
+              "SHOW_NOTICE_DETAIL"
+            ],
+            "props": {
+              "headline": "운영 공지를 자세히 확인합니다.",
+              "body": "중요 공지와 점검 안내를 바로 확인할 수 있습니다.",
+              "dialog_title": "운영 공지 상세",
+              "dialog_body": "점검과 중요 공지는 앱 업데이트 없이 바로 바뀔 수 있습니다.",
+              "role_scope": "master,admin"
+            }
+          },
+          {
+            "id": "settings_runtime_notice_panel",
+            "title": "운영 가이드",
+            "description": "기본 안내 카드가 어떻게 보이는지 바로 확인합니다.",
+            "component": "EMPTY_STATE_PANEL",
+            "variantLabel": "empty_state_ops_notice_v1",
+            "props": {
+              "badge": "운영 가이드",
+              "headline": "안내 카드 미리보기",
+              "body": "공통 안내 문구와 연결 상태를 여기서 확인합니다.",
+              "api_profile_key": "fast",
+              "legal_notice_text": "본 안내는 예시 운영 고지이며, 실제 투자 판단의 최종 책임은 사용자에게 있습니다.",
+              "primary_label": "장투 차트 설정으로 이동",
+              "primary_action": "SCROLL_TO_SECTION",
+              "primary_target_section": "settings_longterm_chart_registry",
+              "secondary_label": "현재 구성 공유",
+              "secondary_action": "SHARE_CONTENT",
+              "secondary_share_text": "stock_v2 운영 가이드\n후보 조회 속도: 빠르게\n법적 고지: 실제 투자 판단의 최종 책임은 사용자에게 있습니다.",
+              "role_scope": "master,admin"
+            }
+          },
+          {
+            "id": "settings_runtime_notice_registry",
+            "title": "안내 카드 설정",
+            "description": "안내 카드 문구와 연결을 조절합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_runtime_notice_registry_v1",
+            "actions": [
+              "SWITCH_ENVIRONMENT",
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "api_profile_key,legal_notice_text",
+              "summary_title": "안내 카드 미리보기",
+              "control_target_section_id": "settings_runtime_notice_panel",
+              "field_label_api_profile_key": "조회 속도",
+              "field_default_api_profile_key": "fast",
+              "field_label_legal_notice_text": "공통 법적/주의 고지",
+              "field_default_legal_notice_text": "본 안내는 예시 운영 고지이며, 실제 투자 판단의 최종 책임은 사용자에게 있습니다.",
+              "role_scope": "master,admin"
+            }
+          },
+          {
+            "id": "settings_design_info",
+            "title": "디자인 설정 안내",
+            "description": "디자인은 공용값, 카드 기본값, 카드별 예외값 순서로 적용됩니다.",
+            "component": "EMPTY_STATE_PANEL",
+            "variantLabel": "empty_state_design_info_v1",
+            "props": {
+              "role_scope": "master,admin",
+              "badge": "디자인 설정",
+              "headline": "관리자 디자인 설정",
+              "body": "공용값을 먼저 적용하고, 카드 기본값과 카드별 예외값으로 필요한 부분만 조절합니다.",
+              "primary_label": "홈 탭으로 이동",
+              "primary_action": "OPEN_TAB",
+              "primary_target_tab": "home",
+              "secondary_label": "설정 화면 공유",
+              "secondary_action": "SHARE_CONTENT",
+              "secondary_share_text": "stock_v2 디자인 설정\n상속 순서: 공용 -> 카드 타입 -> 카드별 예외값"
+            }
+          },
+          {
+            "id": "settings_design_global",
+            "title": "공용 디자인 옵션",
+            "description": "모든 홈 카드가 먼저 상속하는 기본 디자인값입니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_design_global_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "role_scope": "master,admin",
+              "fields": "design_density,design_container_tone,design_subtone,design_border_style,design_corner_radius,design_padding_horizontal,design_padding_vertical,design_section_gap,design_title_size,design_value_size,design_title_color,design_positive_color,design_negative_color,design_neutral_color",
+              "summary_title": "공용 디자인 옵션 미리보기",
+              "control_design_global": "true"
+            }
+          },
+          {
+            "id": "settings_design_asset_defaults",
+            "title": "자산 카드 기본값",
+            "description": "수익내역 카드 컨테이너가 따르는 기본 디자인값입니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_design_asset_defaults_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "role_scope": "master,admin",
+              "fields": "design_layout_style,design_heading_accent,design_density,design_padding_horizontal,design_padding_vertical,design_section_gap,design_title_size,design_value_size,design_secondary_text_mode,design_unit_position,design_label_wrap,design_value_wrap",
+              "summary_title": "자산 카드 기본값 미리보기",
+              "control_design_card_type": "home_asset_summary_card",
+              "field_options_design_layout_style": "ledger:장부형|tiles:타일형|compact:컴팩트형",
+              "field_default_design_density": "compact",
+              "field_default_design_layout_style": "tiles",
+              "field_options_design_heading_accent": "none:없음|bar:세로줄|dot:점",
+              "field_default_design_heading_accent": "bar",
+              "field_default_design_padding_horizontal": "20",
+              "field_default_design_padding_vertical": "18",
+              "field_default_design_section_gap": "14",
+              "field_default_design_title_size": "small",
+              "field_default_design_secondary_text_mode": "badge",
+              "field_default_design_unit_position": "right",
+              "field_default_design_value_size": "hero"
+            }
+          },
+          {
+            "id": "settings_design_market_defaults",
+            "title": "시장 카드 기본값",
+            "description": "국내 시장 지표 카드의 숫자와 그래프 기본 디자인값입니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_design_market_defaults_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "role_scope": "master,admin",
+              "fields": "design_density,design_padding_horizontal,design_padding_vertical,design_section_gap,design_title_size,design_value_size,design_graph_style,design_label_wrap,design_value_wrap",
+              "summary_title": "시장 카드 기본값 미리보기",
+              "control_design_card_type": "home_market_index_card",
+              "field_default_design_density": "compact",
+              "field_default_design_graph_style": "area",
+              "field_default_design_padding_horizontal": "14",
+              "field_default_design_padding_vertical": "14",
+              "field_default_design_section_gap": "10",
+              "field_default_design_title_size": "small",
+              "field_default_design_value_size": "large",
+              "field_default_design_value_wrap": "one_line"
+            }
+          },
+          {
+            "id": "settings_design_flow_defaults",
+            "title": "수급 카드 기본값",
+            "description": "실시간 투자자 수급 카드의 bar 톤과 간격 기본값입니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_design_flow_defaults_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "role_scope": "master,admin",
+              "fields": "design_heading_accent,design_graph_height,design_border_style,design_density,design_padding_horizontal,design_padding_vertical,design_section_gap,design_title_size,design_positive_color,design_negative_color,design_neutral_color",
+              "summary_title": "수급 카드 기본값 미리보기",
+              "control_design_card_type": "home_investor_flow_card",
+              "field_options_design_heading_accent": "none:없음|bar:세로줄|dot:점",
+              "field_default_design_heading_accent": "bar",
+              "field_default_design_graph_height": "14",
+              "field_options_design_border_style": "thin:얇은 구분선|none:없음|strong:두꺼운 구분선",
+              "field_default_design_border_style": "thin"
+            }
+          },
+          {
+            "id": "settings_design_theme_defaults",
+            "title": "테마 카드 기본값",
+            "description": "핵심 테마 칩 스트립의 강조 방식과 간격 기본값입니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_design_theme_defaults_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "role_scope": "master,admin",
+              "fields": "design_heading_accent,design_secondary_text_mode,design_density,design_padding_horizontal,design_padding_vertical,design_section_gap,design_title_size,design_chip_emphasis",
+              "summary_title": "테마 카드 기본값 미리보기",
+              "control_design_card_type": "home_theme_chip_card",
+              "field_options_design_heading_accent": "none:없음|bar:세로줄|dot:점",
+              "field_default_design_heading_accent": "bar",
+              "field_options_design_secondary_text_mode": "badge:등락률 강조|inline:통합 표시",
+              "field_default_design_secondary_text_mode": "badge"
+            }
+          },
+          {
+            "id": "settings_design_watchlist_defaults",
+            "title": "종목 카드 기본값",
+            "description": "주요 종목 실시간 리스트의 썸네일, 보조정보, 타이포 기본값입니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_design_watchlist_defaults_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "role_scope": "master,admin",
+              "fields": "design_layout_style,design_heading_accent,design_density,design_section_gap,design_title_size,design_value_size,design_thumbnail_style,design_meta_mode,design_secondary_text_mode,design_label_wrap",
+              "summary_title": "종목 카드 기본값 미리보기",
+              "control_design_card_type": "home_watchlist_card",
+              "field_options_design_heading_accent": "none:없음|bar:세로줄|dot:점",
+              "field_default_design_heading_accent": "bar",
+              "field_options_design_layout_style": "tracking:추적형|compact:컴팩트형",
+              "field_default_design_layout_style": "tracking",
+              "field_default_design_meta_mode": "ticker_source",
+              "field_default_design_secondary_text_mode": "inline"
+            }
+          },
+          {
+            "id": "settings_design_signal_defaults",
+            "title": "시그널 카드 기본값",
+            "description": "단타/장투 후보 카드의 수치 배치, 숫자 크기, 단위 위치 기본값입니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_design_signal_defaults_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "role_scope": "master,admin",
+              "fields": "design_layout_style,design_density,design_title_size,design_value_size,design_value_wrap,design_unit_position,design_label_wrap",
+              "summary_title": "시그널 카드 기본값 미리보기",
+              "control_design_card_type": "signal_stock_card",
+              "field_label_design_layout_style": "수치 배치 방식",
+              "field_options_design_layout_style": "auto:자동|three_columns:3열|two_plus_one:2열+1행|stacked:1열",
+              "field_default_design_layout_style": "auto",
+              "field_label_design_density": "카드 밀도",
+              "field_default_design_density": "compact",
+              "field_label_design_title_size": "제목 크기",
+              "field_default_design_title_size": "small",
+              "field_label_design_value_size": "숫자 크기",
+              "field_default_design_value_size": "medium",
+              "field_label_design_value_wrap": "숫자 줄바꿈",
+              "field_options_design_value_wrap": "one_line:한 줄 고정|auto:자동",
+              "field_default_design_value_wrap": "one_line",
+              "field_label_design_unit_position": "단위 위치",
+              "field_options_design_unit_position": "right:값 옆|below:다음 줄|hidden:숨김",
+              "field_default_design_unit_position": "right",
+              "field_label_design_label_wrap": "진입 논리 길이",
+              "field_options_design_label_wrap": "one_line:한 줄|two_line:두 줄|auto:자동",
+              "field_default_design_label_wrap": "two_line"
+            }
+          },
+          {
+            "id": "settings_design_asset_override",
+            "title": "자산 카드 예외값",
+            "description": "홈 수익내역 카드 한 장만 별도로 조절할 때 씁니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_design_asset_override_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "role_scope": "master,admin",
+              "design_apply_mode": "stored_only",
+              "fields": "design_layout_style,design_title_size,design_value_size,design_secondary_text_mode,design_unit_position",
+              "summary_title": "자산 카드 예외값 미리보기",
+              "control_design_card_id": "home_asset_summary",
+              "field_options_design_layout_style": "inherit:상속|ledger:장부형|tiles:타일형|compact:컴팩트형",
+              "field_options_design_title_size": "inherit:상속|small:작게|medium:기본|large:크게",
+              "field_options_design_value_size": "inherit:상속|medium:보통|large:크게|hero:매우 크게",
+              "field_options_design_secondary_text_mode": "inherit:상속|inline:값 옆|badge:배지형|next_line:다음 줄|hidden:숨김",
+              "field_options_design_unit_position": "inherit:상속|right:오른쪽|below:아래|hidden:숨김"
+            }
+          },
+          {
+            "id": "settings_design_market_override",
+            "title": "시장 카드 예외값",
+            "description": "국내 시장 지표 카드 한 장만 별도로 조절할 때 씁니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_design_market_override_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "role_scope": "master,admin",
+              "design_apply_mode": "stored_only",
+              "fields": "design_graph_style,design_title_size,design_value_size,design_value_wrap",
+              "summary_title": "시장 카드 예외값 미리보기",
+              "control_design_card_id": "home_market_indices",
+              "field_options_design_graph_style": "inherit:상속|line:라인|area:면 채움|bars:막대",
+              "field_options_design_title_size": "inherit:상속|small:작게|medium:기본|large:크게",
+              "field_options_design_value_size": "inherit:상속|medium:보통|large:크게|hero:매우 크게",
+              "field_options_design_value_wrap": "inherit:상속|one_line:한 줄|two_line:두 줄|auto:자동"
+            }
+          },
+          {
+            "id": "settings_design_watchlist_override",
+            "title": "종목 카드 예외값",
+            "description": "주요 종목 실시간 리스트 한 장만 별도로 조절할 때 씁니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_design_watchlist_override_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "role_scope": "master,admin",
+              "design_apply_mode": "stored_only",
+              "fields": "design_layout_style,design_thumbnail_style,design_meta_mode,design_secondary_text_mode,design_title_size,design_value_size,design_label_wrap",
+              "summary_title": "종목 카드 예외값 미리보기",
+              "control_design_card_id": "home_watchlist",
+              "field_options_design_layout_style": "inherit:상속|tracking:추적형|compact:컴팩트형",
+              "field_options_design_thumbnail_style": "inherit:상속|logo_box:로고 박스|initial_box:이니셜 박스|minimal:썸네일 숨김",
+              "field_options_design_meta_mode": "inherit:상속|ticker_only:티커만|ticker_source:티커와 원천|hidden:숨김",
+              "field_options_design_secondary_text_mode": "inherit:상속|inline:한 줄 표시|next_line:다음 줄|hidden:숨김",
+              "field_options_design_title_size": "inherit:상속|small:작게|medium:기본|large:크게",
+              "field_options_design_value_size": "inherit:상속|medium:보통|large:크게|hero:매우 크게",
+              "field_options_design_label_wrap": "inherit:상속|one_line:한 줄|two_line:두 줄|auto:자동"
+            }
+          },
+          {
+            "id": "settings_design_daytrade_override",
+            "title": "단타 카드 예외값",
+            "description": "단타 후보 카드만 별도로 조절할 때 씁니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_design_daytrade_override_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "role_scope": "master,admin",
+              "design_apply_mode": "stored_only",
+              "fields": "design_layout_style,design_density,design_value_size,design_value_wrap,design_unit_position,design_label_wrap",
+              "summary_title": "단타 카드 예외값 미리보기",
+              "control_design_card_id": "premarket_list",
+              "field_label_design_layout_style": "수치 배치 방식",
+              "field_options_design_layout_style": "inherit:상속|auto:자동|three_columns:3열|two_plus_one:2열+1행|stacked:1열",
+              "field_label_design_density": "카드 밀도",
+              "field_options_design_density": "inherit:상속|compact:촘촘|normal:기본|roomy:여유",
+              "field_label_design_value_size": "숫자 크기",
+              "field_options_design_value_size": "inherit:상속|medium:보통|large:크게|hero:매우 크게",
+              "field_label_design_value_wrap": "숫자 줄바꿈",
+              "field_options_design_value_wrap": "inherit:상속|one_line:한 줄 고정|auto:자동",
+              "field_label_design_unit_position": "단위 위치",
+              "field_options_design_unit_position": "inherit:상속|right:값 옆|below:다음 줄|hidden:숨김",
+              "field_label_design_label_wrap": "진입 논리 길이",
+              "field_options_design_label_wrap": "inherit:상속|one_line:한 줄|two_line:두 줄|auto:자동"
+            }
+          },
+          {
+            "id": "settings_design_longterm_override",
+            "title": "장투 카드 예외값",
+            "description": "장기 후보 카드만 별도로 조절할 때 씁니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_design_longterm_override_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "role_scope": "master,admin",
+              "design_apply_mode": "stored_only",
+              "fields": "design_layout_style,design_density,design_value_size,design_value_wrap,design_unit_position,design_label_wrap",
+              "summary_title": "장투 카드 예외값 미리보기",
+              "control_design_card_id": "longterm_live_list",
+              "field_label_design_layout_style": "수치 배치 방식",
+              "field_options_design_layout_style": "inherit:상속|auto:자동|three_columns:3열|two_plus_one:2열+1행|stacked:1열",
+              "field_label_design_density": "카드 밀도",
+              "field_options_design_density": "inherit:상속|compact:촘촘|normal:기본|roomy:여유",
+              "field_label_design_value_size": "숫자 크기",
+              "field_options_design_value_size": "inherit:상속|medium:보통|large:크게|hero:매우 크게",
+              "field_label_design_value_wrap": "숫자 줄바꿈",
+              "field_options_design_value_wrap": "inherit:상속|one_line:한 줄 고정|auto:자동",
+              "field_label_design_unit_position": "단위 위치",
+              "field_options_design_unit_position": "inherit:상속|right:값 옆|below:다음 줄|hidden:숨김",
+              "field_label_design_label_wrap": "진입 논리 길이",
+              "field_options_design_label_wrap": "inherit:상속|one_line:한 줄|two_line:두 줄|auto:자동"
+            }
+          },
+          {
+            "id": "settings_media_lab_entry",
+            "title": "미디어 랩 바로가기",
+            "description": "tab 밖 extra page와 내부 secondary tab, media card를 즉시 검증합니다.",
+            "component": "EMPTY_STATE_PANEL",
+            "variantLabel": "empty_state_media_lab_entry_v1",
+            "props": {
+              "badge": "MEDIA LAB",
+              "headline": "미디어 플레이 랩",
+              "body": "완전히 새로운 page id, 내부 secondary tab, native media card를 한 번에 확인합니다.",
+              "primary_label": "미디어 랩 열기",
+              "primary_action": "OPEN_PAGE",
+              "primary_target_page": "news_media_lab_page"
+            }
+          },
+          {
+            "id": "settings_role_target_notice",
+            "title": "운영자 전용 카드",
+            "description": "특정 권한 사용자에게만 새 카드를 노출하는 검증용 section입니다.",
+            "component": "NOTICE_BANNER",
+            "variantLabel": "notice_banner_target_role_v1",
+            "props": {
+              "headline": "MASTER 대상 운영 카드",
+              "body": "이 카드는 role_scope=master일 때만 보입니다.",
+              "role_scope": "master"
+            }
+          },
+          {
+            "id": "settings_bucket_target_notice",
+            "title": "실험군 카드",
+            "description": "저장된 사용자 코드에서 계산한 버킷에 따라 새 카드를 분기하는 검증용 section입니다.",
+            "component": "NOTICE_BANNER",
+            "variantLabel": "notice_banner_target_bucket_v1",
+            "props": {
+              "headline": "CONTROL 버킷 실험 카드",
+              "body": "이 카드는 ab_test_bucket=control일 때만 보입니다.",
+              "ab_test_bucket": "control"
+            }
+          },
+          {
+            "id": "settings_bucket_holdout_notice",
+            "title": "B 버킷 검증 카드",
+            "description": "현재 버킷이 b일 때만 노출되는 검증용 section입니다.",
+            "component": "NOTICE_BANNER",
+            "variantLabel": "notice_banner_target_holdout_v1",
+            "props": {
+              "headline": "B 버킷 검증 카드",
+              "body": "이 카드는 ab_test_bucket=b일 때만 보입니다.",
+              "ab_test_bucket": "b"
+            }
+          },
+          {
+            "id": "settings_form",
+            "title": "운영 설정 폼",
+            "description": "기본 진입 화면과 안전 정책을 여기서 조절합니다.",
+            "component": "MODAL_FORM_SHEET",
+            "variantLabel": "settings_policy_form_v1",
+            "actions": [
+              "OPEN_SHEET",
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "bootstrap_profile,environment_policy,fallback_policy,cache_ttl_sec,kill_switch_scope,recommended_update_url,default_tab,tab_visibility_matrix,section_visibility,section_order,card_field_visibility,news_layout_mode,news_source_mode,news_cluster_window,push_target_scope,push_deeplink_route,support_link",
+              "summary_title": "설정 미리보기",
+              "sheet_title": "운영 설정 시트",
+              "sheet_subtitle": "기본 화면, 탭 노출, 뉴스 배치, 알림 이동 경로를 여기서 조절합니다.",
+              "submit_title": "운영 설정 저장",
+              "submit_triggers_reload": "true",
+              "field_label_bootstrap_profile": "구성 모드",
+              "field_helper_bootstrap_profile": "선택 즉시 앱 구성을 바꾸고 화면을 다시 불러옵니다.",
+              "field_label_fallback_policy": "오프라인 대응 방식",
+              "field_label_cache_ttl_sec": "캐시 유지 시간(초)",
+              "field_helper_cache_ttl_sec": "저장된 구성을 얼마나 최신으로 볼지 정합니다.",
+              "field_label_recommended_update_url": "최신 버전 안내 링크"
+            }
+          },
+          {
+            "id": "settings_header_variant_registry",
+            "title": "상단 스타일 설정",
+            "description": "hero header 계열의 상단 분위기와 강조 방식을 공통 variant로 교체합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_header_variant_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "variant_key",
+              "summary_title": "헤더 variant 미리보기",
+              "control_variant_scope": "hero_header",
+              "field_label_variant_key": "헤더 variant",
+              "field_options_variant_key": "hero_header_default_v1:기본 히어로|hero_header_brief_v1:요약형|hero_header_stats_v1:지표 강조형",
+              "field_default_variant_key": "hero_header_default_v1"
+            }
+          },
+          {
+            "id": "settings_supply_registry",
+            "title": "수급 화면 설정",
+            "description": "수급 화면의 섹션 순서, 카드 필드, 표시 개수, 빠른 필터 세트를 전용 registry form으로 관리합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_supply_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "section_visibility,section_order,display_count,card_field_visibility,search_scope,default_filters,quick_filter_preset",
+              "summary_title": "수급 정책 미리보기",
+              "control_tab_id": "supply",
+              "control_list_section_id": "supply_live_list",
+              "control_card_scope": "supply",
+              "control_search_scope": "supply",
+              "control_filter_scope": "supply_flow",
+              "field_label_section_visibility": "수급 섹션 노출",
+              "field_options_section_visibility": "supply_metrics:핵심 지표|supply_compare_panel:수급 비교 차트|supply_search:수급 검색|supply_flow_filter:흐름 필터|supply_sort:정렬|supply_live_list:수급 랭킹|supply_hero:수급 헤더",
+              "field_defaults_section_visibility": "supply_metrics,supply_compare_panel,supply_search,supply_flow_filter,supply_sort,supply_live_list,supply_hero",
+              "field_label_section_order": "수급 섹션 순서",
+              "field_helper_section_order": "선택 순서가 실제 수급 화면의 상단 배치 우선순위가 됩니다.",
+              "field_options_section_order": "supply_metrics:핵심 지표|supply_compare_panel:수급 비교 차트|supply_search:수급 검색|supply_flow_filter:흐름 필터|supply_sort:정렬|supply_live_list:수급 랭킹|supply_hero:수급 헤더",
+              "field_defaults_section_order": "supply_metrics,supply_compare_panel,supply_search,supply_flow_filter,supply_sort,supply_live_list,supply_hero",
+              "field_label_display_count": "수급 카드 표시 개수",
+              "field_default_display_count": "12",
+              "field_helper_display_count": "수급 랭킹에 한 번에 노출할 최대 카드 수입니다.",
+              "field_label_card_field_visibility": "수급 카드 필드 노출",
+              "field_options_card_field_visibility": "badge:흐름 배지|name:종목명|ticker:티커|price:현재가|change:등락률|source:원천|time:기준 시각|reason:투자자 메시지",
+              "field_defaults_card_field_visibility": "badge,name,ticker,price,change,reason",
+              "field_label_search_scope": "수급 검색 범위",
+              "field_options_search_scope": "name:종목명|ticker:티커|flow:수급 흐름|tag:태그",
+              "field_defaults_search_scope": "name,ticker,flow,tag",
+              "field_label_default_filters": "수급 세그먼트 구성",
+              "field_helper_default_filters": "흐름 세그먼트 칩 수와 기본 노출 순서를 같이 정합니다.",
+              "field_options_default_filters": "all:전체|동반 매수:동반 매수|외국인 주도:외인 주도|기관 주도:기관 주도|개인 역추세:개인 역추세",
+              "field_defaults_default_filters": "all,동반 매수,외국인 주도,기관 주도,개인 역추세",
+              "field_label_quick_filter_preset": "수급 빠른 필터 세트",
+              "field_options_quick_filter_preset": "all:전체|동반 매수:동반 매수|외국인 주도:외인 주도|기관 주도:기관 주도|개인 역추세:개인 역추세",
+              "field_defaults_quick_filter_preset": "all,동반 매수,외국인 주도,기관 주도"
+            }
+          },
+          {
+            "id": "settings_supply_variant_registry",
+            "title": "수급 카드 스타일",
+            "description": "수급 점수 카드의 색상과 강조 규칙을 전용 variant form으로 교체합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_supply_variant_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "variant_key",
+              "summary_title": "수급 강조 variant 미리보기",
+              "control_variant_section_id": "supply_metrics",
+              "field_label_variant_key": "수급 점수 카드 variant",
+              "field_options_variant_key": "metric_grid_supply:기본|metric_grid_supply_alert_v1:강조형|metric_grid_supply_calm_v1:차분형",
+              "field_default_variant_key": "metric_grid_supply"
+            }
+          },
+          {
+            "id": "settings_supply_chart_registry",
+            "title": "수급 차트 설정",
+            "description": "수급 비교 차트의 기본 기간과 지표 세트를 전용 registry form으로 관리합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_supply_chart_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "chart_default_range,chart_indicator_set",
+              "summary_title": "수급 비교 차트 미리보기",
+              "control_target_section_id": "supply_compare_panel",
+              "field_label_chart_default_range": "수급 비교 기본 기간",
+              "field_default_chart_default_range": "1w",
+              "field_label_chart_indicator_set": "수급 비교 지표 세트",
+              "field_defaults_chart_indicator_set": "avg,delta"
+            }
+          },
+          {
+            "id": "settings_holdings_registry",
+            "title": "보유 화면 설정",
+            "description": "보유 화면의 섹션 순서, 카드 필드, 표시 개수를 전용 registry form으로 관리합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_holdings_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "section_visibility,section_order,display_count,card_field_visibility,search_scope,default_filters",
+              "summary_title": "보유 정책 미리보기",
+              "control_tab_id": "holdings",
+              "control_list_section_id": "holdings_live_list",
+              "control_card_scope": "holdings",
+              "control_search_scope": "holdings",
+              "control_filter_scope": "holdings_environment",
+              "field_label_section_visibility": "보유 섹션 노출",
+              "field_options_section_visibility": "holdings_order_status_card:최근 주문 상태 카드|holdings_reservation_card:예약 상태 카드|holdings_metrics:요약 지표|holdings_search:보유 검색|holdings_position_card:대표 보유 카드|holdings_environment_filter:환경 필터|holdings_sort:정렬|holdings_live_list:보유 목록|holdings_hero:보유 헤더",
+              "field_defaults_section_visibility": "holdings_order_status_card,holdings_reservation_card,holdings_metrics,holdings_search,holdings_position_card,holdings_environment_filter,holdings_sort,holdings_live_list,holdings_hero",
+              "field_label_section_order": "보유 섹션 순서",
+              "field_helper_section_order": "실계좌 확인에 중요한 카드가 먼저 오도록 순서를 조정합니다.",
+              "field_options_section_order": "holdings_order_status_card:최근 주문 상태 카드|holdings_reservation_card:예약 상태 카드|holdings_metrics:요약 지표|holdings_search:보유 검색|holdings_position_card:대표 보유 카드|holdings_environment_filter:환경 필터|holdings_sort:정렬|holdings_live_list:보유 목록|holdings_hero:보유 헤더",
+              "field_defaults_section_order": "holdings_order_status_card,holdings_reservation_card,holdings_metrics,holdings_search,holdings_position_card,holdings_environment_filter,holdings_sort,holdings_live_list,holdings_hero",
+              "field_label_display_count": "보유 카드 표시 개수",
+              "field_default_display_count": "8",
+              "field_helper_display_count": "보유 목록에서 한 번에 노출할 최대 카드 수입니다.",
+              "field_label_card_field_visibility": "보유 카드 필드 노출",
+              "field_options_card_field_visibility": "badge:환경/원천 배지|name:종목명|ticker:티커|price:현재가|change:수익률|source:계좌 라벨|reason:평가금액/손익",
+              "field_defaults_card_field_visibility": "badge,name,ticker,price,change,source,reason",
+              "field_label_search_scope": "보유 검색 범위",
+              "field_options_search_scope": "name:종목명|ticker:티커|environment:환경|source:계좌/원천",
+              "field_defaults_search_scope": "name,ticker,environment,source",
+              "field_label_default_filters": "보유 환경 세그먼트",
+              "field_helper_default_filters": "환경 세그먼트 칩 순서가 달라지면 보유/주문/예약 카드도 같은 환경 기준으로 같이 좁혀집니다.",
+              "field_options_default_filters": "all:전체|demo:모의|prod:실전",
+              "field_defaults_default_filters": "all,demo,prod"
+            }
+          },
+          {
+            "id": "settings_news_registry",
+            "title": "뉴스 화면 설정",
+            "description": "뉴스 화면의 섹션 순서, 기사 필드, 표시 개수, 검색 범위, 추천 키워드를 전용 registry form으로 관리합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_news_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "section_visibility,section_order,display_count,card_field_visibility,search_scope,quick_filter_preset,news_priority_weight,source_weight_news",
+              "summary_title": "뉴스 정책 미리보기",
+              "control_tab_id": "news",
+              "control_list_section_id": "news_timeline",
+              "control_card_scope": "news",
+              "control_search_scope": "news",
+              "control_filter_scope": "news_search",
+              "field_label_section_visibility": "뉴스 섹션 노출",
+              "field_options_section_visibility": "news_timeline:뉴스 리스트|news_summary:요약 배너|news_metrics:뉴스 지표|news_search:검색|news_sort:정렬",
+              "field_defaults_section_visibility": "news_timeline,news_summary,news_metrics,news_search,news_sort",
+              "field_label_section_order": "뉴스 섹션 순서",
+              "field_options_section_order": "news_timeline:뉴스 리스트|news_summary:요약 배너|news_metrics:뉴스 지표|news_search:검색|news_sort:정렬",
+              "field_defaults_section_order": "news_timeline,news_summary,news_metrics,news_search,news_sort",
+              "field_label_display_count": "뉴스 카드 표시 개수",
+              "field_default_display_count": "10",
+              "field_helper_display_count": "타임라인/클러스터/컴팩트 레이아웃에서 노출할 최대 카드 수입니다.",
+              "field_label_card_field_visibility": "뉴스 카드 필드 노출",
+              "field_options_card_field_visibility": "badge:카테고리 배지|name:제목|ticker:연관 종목|source:출처|time:발행 시각|change:영향도|reason:요약/리스크",
+              "field_defaults_card_field_visibility": "badge,name,ticker,source,time,change,reason",
+              "field_label_search_scope": "뉴스 검색 범위",
+              "field_options_search_scope": "title:제목|ticker:티커|summary:요약|tag:태그|source:출처",
+              "field_defaults_search_scope": "title,ticker,summary",
+              "field_label_quick_filter_preset": "뉴스 추천 키워드",
+              "field_options_quick_filter_preset": "all:전체|실적:실적|공시:공시|반도체:반도체|SEC:SEC",
+              "field_defaults_quick_filter_preset": "all,실적,공시,반도체",
+              "field_label_news_priority_weight": "출처 가중 강도",
+              "field_default_news_priority_weight": "1.0",
+              "field_helper_news_priority_weight": "hot/영향도 정렬에서 출처별 기본 가중치가 얼마나 강하게 반영될지 정합니다.",
+              "field_label_source_weight_news": "출처별 가중치",
+              "field_placeholder_source_weight_news": "예: rss=1.0,dart=1.2",
+              "field_default_source_weight_news": "rss=1.0,dart=1.2,sec=1.15",
+              "field_helper_source_weight_news": "source=weight 형식을 쉼표로 구분합니다. 예: rss=0.9,dart=1.25"
+            }
+          },
+          {
+            "id": "settings_news_sort_variant_registry",
+            "title": "뉴스 정렬 스타일",
+            "description": "정렬 칩 디자인을 같은 sort component 안에서 variant로 교체합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_news_sort_variant_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "variant_key",
+              "summary_title": "뉴스 정렬 variant 미리보기",
+              "control_variant_section_id": "news_sort",
+              "field_label_variant_key": "뉴스 정렬 variant",
+              "field_options_variant_key": "sort_chip_group_v1:기본|sort_chip_group_emphasis_v1:강조형|sort_chip_group_line_v1:라인형",
+              "field_default_variant_key": "sort_chip_group_v1"
+            }
+          },
+          {
+            "id": "settings_alerts_registry",
+            "title": "알림 화면 설정",
+            "description": "알림 화면의 섹션 순서, 카드 필드, 표시 개수, 빠른 필터 세트를 전용 registry form으로 관리합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_alerts_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "section_visibility,section_order,display_count,card_field_visibility,default_filters,quick_filter_preset",
+              "summary_title": "알림 정책 미리보기",
+              "control_tab_id": "alerts",
+              "control_list_section_id": "alerts_live_list",
+              "control_card_scope": "alerts",
+              "control_filter_scope": "alerts_type",
+              "field_label_section_visibility": "알림 섹션 노출",
+              "field_options_section_visibility": "alerts_metrics:오늘 상태|alerts_filter:알림 필터|alerts_live_list:알림 목록|alerts_notice:운영 공지",
+              "field_defaults_section_visibility": "alerts_metrics,alerts_filter,alerts_live_list,alerts_notice",
+              "field_label_section_order": "알림 섹션 순서",
+              "field_options_section_order": "alerts_metrics:오늘 상태|alerts_filter:알림 필터|alerts_live_list:알림 목록|alerts_notice:운영 공지",
+              "field_defaults_section_order": "alerts_metrics,alerts_filter,alerts_live_list,alerts_notice",
+              "field_label_display_count": "알림 카드 표시 개수",
+              "field_default_display_count": "12",
+              "field_helper_display_count": "알림 목록에서 한 번에 노출할 최대 카드 수입니다.",
+              "field_label_card_field_visibility": "알림 카드 필드 노출",
+              "field_options_card_field_visibility": "badge:레벨/유형 배지|name:제목|reason:본문",
+              "field_defaults_card_field_visibility": "badge,name,reason",
+              "field_label_default_filters": "알림 세그먼트 구성",
+              "field_helper_default_filters": "알림 타입 세그먼트 칩 수와 기본 선택 순서를 동시에 제어합니다.",
+              "field_options_default_filters": "all:전체|TRIGGER:트리거|PREMARKET:장전|EOD:장마감|ADMIN:운영 발송|UPDATE:업데이트|INFO:운영/안내",
+              "field_defaults_default_filters": "all,TRIGGER,PREMARKET,EOD,ADMIN,UPDATE,INFO",
+              "field_label_quick_filter_preset": "알림 빠른 필터 세트",
+              "field_options_quick_filter_preset": "all:전체|TRIGGER:트리거|PREMARKET:장전|EOD:장마감|ADMIN:운영 발송|UPDATE:업데이트|INFO:운영/안내",
+              "field_defaults_quick_filter_preset": "all,TRIGGER,PREMARKET,EOD,ADMIN,UPDATE"
+            }
+          },
+          {
+            "id": "settings_movers_registry",
+            "title": "급등 화면 설정",
+            "description": "급등 화면의 섹션 순서, 카드 필드, 표시 개수, 기본 세션 조건을 전용 registry form으로 관리합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_movers_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "dataset": "movers",
+              "fields": "section_visibility,section_order,display_count,card_field_visibility,allowed_sessions",
+              "summary_title": "급등 정책 미리보기",
+              "control_tab_id": "movers",
+              "control_list_section_id": "movers_live_list",
+              "control_card_scope": "movers",
+              "control_session_scope": "movers",
+              "submit_triggers_reload": "true",
+              "field_label_section_visibility": "급등 섹션 노출",
+              "field_options_section_visibility": "movers_metrics:오늘 상태|movers_live_list:급등 랭킹|movers_hero:급등 헤더",
+              "field_defaults_section_visibility": "movers_metrics,movers_live_list,movers_hero",
+              "field_label_section_order": "급등 섹션 순서",
+              "field_helper_section_order": "후보 수, 세션 조건, 랭킹 카드의 상단 배치를 조정합니다.",
+              "field_options_section_order": "movers_metrics:오늘 상태|movers_live_list:급등 랭킹|movers_hero:급등 헤더",
+              "field_defaults_section_order": "movers_metrics,movers_live_list,movers_hero",
+              "field_label_display_count": "급등 카드 표시 개수",
+              "field_default_display_count": "8",
+              "field_helper_display_count": "급등 랭킹에 한 번에 노출할 최대 카드 수입니다.",
+              "field_label_card_field_visibility": "급등 카드 필드 노출",
+              "field_options_card_field_visibility": "badge:시장/품질 배지|name:종목명|ticker:티커|price:현재가/거래대금|change:등락률/비율|source:태그/지표|time:기준 시각|reason:품질 사유",
+              "field_defaults_card_field_visibility": "badge,name,ticker,price,change,reason",
+              "field_label_allowed_sessions": "급등 기본 세션",
+              "field_helper_allowed_sessions": "선택한 세션 기준으로 급등 원격 호출과 fallback 리스트를 함께 좁힙니다.",
+              "field_options_allowed_sessions": "premarket:장전|regular:정규장|afterhours:시간외",
+              "field_defaults_allowed_sessions": "regular"
+            }
+          },
+          {
+            "id": "settings_us_registry",
+            "title": "미국장 화면 설정",
+            "description": "미장 화면의 섹션 순서, 카드 필드, 표시 개수를 전용 registry form으로 관리합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_us_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "section_visibility,section_order,display_count,card_field_visibility",
+              "summary_title": "미장 정책 미리보기",
+              "control_tab_id": "us",
+              "control_list_section_id": "us_live_list",
+              "control_card_scope": "us",
+              "field_label_section_visibility": "미장 섹션 노출",
+              "field_options_section_visibility": "us_metrics:오늘 상태|us_sort:미장 정렬|us_live_list:주요 내부자 흐름|us_hero:미장 헤더",
+              "field_defaults_section_visibility": "us_metrics,us_sort,us_live_list,us_hero",
+              "field_label_section_order": "미장 섹션 순서",
+              "field_helper_section_order": "insider 카드와 설명 헤더의 상단 배치를 조정합니다.",
+              "field_options_section_order": "us_metrics:오늘 상태|us_sort:미장 정렬|us_live_list:주요 내부자 흐름|us_hero:미장 헤더",
+              "field_defaults_section_order": "us_metrics,us_sort,us_live_list,us_hero",
+              "field_label_display_count": "미장 카드 표시 개수",
+              "field_default_display_count": "8",
+              "field_helper_display_count": "미장 insider 리스트에 한 번에 노출할 최대 카드 수입니다.",
+              "field_label_card_field_visibility": "미장 카드 필드 노출",
+              "field_options_card_field_visibility": "badge:신호/거래코드|name:회사명|ticker:티커|time:거래일|source:임원/직책|price:거래 금액|change:90일 반복 횟수|reason:신호 사유",
+              "field_defaults_card_field_visibility": "badge,name,ticker,time,source,price,change,reason"
+            }
+          },
+          {
+            "id": "settings_eod_registry",
+            "title": "관심 화면 설정",
+            "description": "관심 화면의 섹션 순서, 카드 필드, 표시 개수를 전용 registry form으로 관리합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_eod_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "section_visibility,section_order,display_count,card_field_visibility,ticker_group_picker",
+              "summary_title": "관심 정책 미리보기",
+              "control_tab_id": "eod",
+              "control_list_section_id": "eod_live_list",
+              "control_card_scope": "favorites",
+              "control_group_scope": "favorites_group",
+              "field_label_section_visibility": "관심 섹션 노출",
+              "field_options_section_visibility": "eod_metrics:오늘 상태|eod_group_filter:관심 필터|eod_live_list:관심 목록|eod_hero:관심 헤더",
+              "field_defaults_section_visibility": "eod_metrics,eod_group_filter,eod_live_list,eod_hero",
+              "field_label_section_order": "관심 섹션 순서",
+              "field_helper_section_order": "관심 목록과 상태 헤더의 상단 배치를 조정합니다.",
+              "field_options_section_order": "eod_metrics:오늘 상태|eod_group_filter:관심 필터|eod_live_list:관심 목록|eod_hero:관심 헤더",
+              "field_defaults_section_order": "eod_metrics,eod_group_filter,eod_live_list,eod_hero",
+              "field_label_display_count": "관심 카드 표시 개수",
+              "field_default_display_count": "10",
+              "field_helper_display_count": "관심 목록에 한 번에 노출할 최대 카드 수입니다.",
+              "field_label_card_field_visibility": "관심 카드 필드 노출",
+              "field_options_card_field_visibility": "badge:원본 탭/상태 배지|name:종목명|ticker:티커|price:현재가/기준가|change:변화율|source:원천|time:기준 시각|reason:관심 등록 시각",
+              "field_defaults_card_field_visibility": "badge,name,ticker,price,change,reason",
+              "field_label_ticker_group_picker": "관심 그룹 칩 세트",
+              "field_options_ticker_group_picker": "all:전체|premarket:단타|supply:수급|movers:급등|news:뉴스|holdings:보유|autotrade:자동",
+              "field_defaults_ticker_group_picker": "all,premarket,supply,movers,news,holdings,autotrade"
+            }
+          },
+          {
+            "id": "settings_premarket_registry",
+            "title": "단타 화면 설정",
+            "description": "단타 화면의 섹션 순서, 카드 필드, 표시 개수를 전용 registry form으로 관리합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_premarket_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "section_visibility,section_order,display_count,card_field_visibility",
+              "summary_title": "단타 정책 미리보기",
+              "control_tab_id": "premarket",
+              "control_list_section_id": "premarket_list",
+              "control_card_scope": "premarket_daytrade",
+              "field_label_section_visibility": "단타 섹션 노출",
+              "field_options_section_visibility": "premarket_metrics:핵심 지표|premarket_list:운영 포인트|premarket_hero:시작 헤더",
+              "field_defaults_section_visibility": "premarket_metrics,premarket_list,premarket_hero",
+              "field_label_section_order": "단타 섹션 순서",
+              "field_helper_section_order": "게이트와 후보 카드가 먼저 오도록 단타 화면 배치를 조정합니다.",
+              "field_options_section_order": "premarket_metrics:핵심 지표|premarket_list:운영 포인트|premarket_hero:시작 헤더",
+              "field_defaults_section_order": "premarket_metrics,premarket_list,premarket_hero",
+              "field_label_display_count": "단타 카드 표시 개수",
+              "field_default_display_count": "6",
+              "field_helper_display_count": "단타 후보 리스트에 한 번에 노출할 최대 카드 수입니다.",
+              "field_label_card_field_visibility": "단타 카드 필드 노출",
+              "field_options_card_field_visibility": "badge:시장/태그 배지|name:종목명|ticker:티커|price:진입/목표/손절가|reason:진입 논리",
+              "field_defaults_card_field_visibility": "badge,name,ticker,price,reason"
+            }
+          },
+          {
+            "id": "settings_longterm_registry",
+            "title": "장투 화면 설정",
+            "description": "장투 화면의 섹션 순서, 카드 필드, 표시 개수를 전용 registry form으로 관리합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_longterm_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "section_visibility,section_order,display_count,card_field_visibility",
+              "summary_title": "장투 정책 미리보기",
+              "control_tab_id": "longterm",
+              "control_list_section_id": "longterm_live_list",
+              "control_card_scope": "premarket_longterm",
+              "field_label_section_visibility": "장투 섹션 노출",
+              "field_options_section_visibility": "longterm_metrics:오늘 상태|longterm_chart_panel:장투 차트|longterm_live_list:장기 후보|longterm_hero:장투 헤더",
+              "field_defaults_section_visibility": "longterm_metrics,longterm_chart_panel,longterm_live_list,longterm_hero",
+              "field_label_section_order": "장투 섹션 순서",
+              "field_helper_section_order": "장기 후보와 설명 카드의 진입 순서를 정책으로 조정합니다.",
+              "field_options_section_order": "longterm_metrics:오늘 상태|longterm_chart_panel:장투 차트|longterm_live_list:장기 후보|longterm_hero:장투 헤더",
+              "field_defaults_section_order": "longterm_metrics,longterm_chart_panel,longterm_live_list,longterm_hero",
+              "field_label_display_count": "장투 카드 표시 개수",
+              "field_default_display_count": "6",
+              "field_helper_display_count": "장기 후보 리스트에 한 번에 노출할 최대 카드 수입니다.",
+              "field_label_card_field_visibility": "장투 카드 필드 노출",
+              "field_options_card_field_visibility": "badge:시장/태그 배지|name:종목명|ticker:티커|price:기준가/매수구간/목표가|reason:장기 투자 논리",
+              "field_defaults_card_field_visibility": "badge,name,ticker,price,reason"
+            }
+          },
+          {
+            "id": "settings_longterm_chart_registry",
+            "title": "장투 차트 설정",
+            "description": "장투 차트의 기본 기간과 지표 세트를 전용 registry form으로 관리합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_longterm_chart_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "chart_default_range,chart_indicator_set",
+              "summary_title": "장투 차트",
+              "control_target_section_id": "longterm_chart_panel",
+              "field_label_chart_default_range": "장투 차트 기본 기간",
+              "field_default_chart_default_range": "3m",
+              "field_label_chart_indicator_set": "장투 차트 지표 세트",
+              "field_defaults_chart_indicator_set": "avg,band,volume"
+            }
+          },
+          {
+            "id": "settings_papers_registry",
+            "title": "논문 화면 설정",
+            "description": "논문 화면의 섹션 순서, 카드 필드, 표시 개수를 전용 registry form으로 관리합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_papers_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "section_visibility,section_order,display_count,card_field_visibility",
+              "summary_title": "논문 정책 미리보기",
+              "control_tab_id": "papers",
+              "control_list_section_id": "papers_live_list",
+              "control_card_scope": "premarket_papers",
+              "field_label_section_visibility": "논문 섹션 노출",
+              "field_options_section_visibility": "papers_metrics:오늘 리포트|papers_live_list:리포트 목록|papers_hero:논문 헤더",
+              "field_defaults_section_visibility": "papers_metrics,papers_live_list,papers_hero",
+              "field_label_section_order": "논문 섹션 순서",
+              "field_helper_section_order": "테마 카드와 운영 규칙 카드의 상단 노출 우선순위를 조정합니다.",
+              "field_options_section_order": "papers_metrics:오늘 리포트|papers_live_list:리포트 목록|papers_hero:논문 헤더",
+              "field_defaults_section_order": "papers_metrics,papers_live_list,papers_hero",
+              "field_label_display_count": "논문 카드 표시 개수",
+              "field_default_display_count": "6",
+              "field_helper_display_count": "테마 카드와 운영 규칙 카드 전체에서 한 번에 노출할 최대 개수입니다.",
+              "field_label_card_field_visibility": "논문 카드 필드 노출",
+              "field_options_card_field_visibility": "badge:순위/구분 배지|name:테마/규칙 제목|reason:설명/운영 규칙 본문",
+              "field_defaults_card_field_visibility": "badge,name,reason"
+            }
+          },
+          {
+            "id": "settings_autotrade_registry",
+            "title": "자동 화면 설정",
+            "description": "자동 화면의 섹션 노출과 순서를 전용 registry form으로 관리합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_autotrade_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "section_visibility,section_order",
+              "summary_title": "자동 화면 배치 미리보기",
+              "control_tab_id": "autotrade",
+              "field_label_section_visibility": "자동 섹션 노출",
+              "field_options_section_visibility": "autotrade_center_metrics:오늘 상태|autotrade_broker_info:실행 환경과 브로커|autotrade_account_info:계좌 자산|autotrade_performance_metrics:최근 성과|auto_form:실행 설정|auto_execute_confirm:실행|autotrade_candidates:실행 후보|autotrade_order_status:최근 주문|autotrade_reservation_status:예약|autotrade_symbol_rules:종목 규칙|autotrade_symbol_rule_form:규칙 추가|autotrade_reentry_blocks:재진입 차단|autotrade_reentry_release_form:차단 해제|auto_rule_card:운영 원칙",
+              "field_defaults_section_visibility": "autotrade_center_metrics,autotrade_broker_info,autotrade_account_info,autotrade_performance_metrics,auto_form,auto_execute_confirm,autotrade_candidates,autotrade_order_status,autotrade_reservation_status,autotrade_symbol_rules,autotrade_symbol_rule_form,autotrade_reentry_blocks,autotrade_reentry_release_form,auto_rule_card",
+              "field_label_section_order": "자동 섹션 순서",
+              "field_helper_section_order": "운영 현황, 실행 규칙, 성과, 재진입 관리 섹션의 순서를 조정합니다.",
+              "field_options_section_order": "autotrade_center_metrics:오늘 상태|autotrade_broker_info:실행 환경과 브로커|autotrade_account_info:계좌 자산|autotrade_performance_metrics:최근 성과|auto_form:실행 설정|auto_execute_confirm:실행|autotrade_candidates:실행 후보|autotrade_order_status:최근 주문|autotrade_reservation_status:예약|autotrade_symbol_rules:종목 규칙|autotrade_symbol_rule_form:규칙 추가|autotrade_reentry_blocks:재진입 차단|autotrade_reentry_release_form:차단 해제|auto_rule_card:운영 원칙",
+              "field_defaults_section_order": "autotrade_center_metrics,autotrade_broker_info,autotrade_account_info,autotrade_performance_metrics,auto_form,auto_execute_confirm,autotrade_candidates,autotrade_order_status,autotrade_reservation_status,autotrade_symbol_rules,autotrade_symbol_rule_form,autotrade_reentry_blocks,autotrade_reentry_release_form,auto_rule_card"
+            }
+          },
+          {
+            "id": "settings_autotrade_form_registry",
+            "title": "자동 규칙 설정",
+            "description": "자동매매 편집 폼의 세션, 예산, 가중치, 손익 기준을 전용 registry form으로 관리합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_autotrade_form_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "seed_krw,order_budget_krw,take_profit_pct,stop_loss_pct,trailing_stop_pct,cooldown_min,max_positions,reentry_policy,allowed_sessions,api_profile_key,autotrade_source_set,source_weight_daytrade,source_weight_movers,source_weight_news,source_weight_favorites,allow_market_order,max_daily_loss_pct,ticker_picker,ticker_group_picker",
+              "summary_title": "자동 규칙 값 미리보기",
+              "control_target_section_id": "auto_form",
+              "field_label_api_profile_key": "후보 API 프로필",
+              "field_helper_api_profile_key": "dry-run 사전 후보 조회에서 backend profile 매핑을 제어합니다.",
+              "field_mode_ticker_picker": "native_ticker_single",
+              "field_mode_ticker_group_picker": "native_ticker_multi",
+              "field_label_ticker_group_picker": "후보 종목 바스켓",
+              "field_helper_ticker_picker": "후보 종목 바스켓과 자동매매 후보 소스를 같이 반영해 실제 티커를 우선 추천합니다.",
+              "field_helper_ticker_group_picker": "여러 종목을 실제 티커 바스켓으로 저장하고 같은 form의 단일 종목 추천에도 즉시 반영합니다."
+            }
+          },
+          {
+            "id": "settings_autotrade_confirm_registry",
+            "title": "자동 실행 확인 설정",
+            "description": "자동매매 최종 확인 시트의 경고 문구와 확인 단계를 전용 registry form으로 관리합니다.",
+            "component": "FORM_ENTRY",
+            "variantLabel": "settings_autotrade_confirm_registry_v1",
+            "actions": [
+              "SUBMIT_FORM"
+            ],
+            "props": {
+              "fields": "warning_message_set,confirmation_step_count,environment_policy",
+              "summary_title": "자동 실행 확인 미리보기",
+              "control_target_section_id": "auto_execute_confirm"
+            }
+          },
+          {
+            "id": "settings_layout",
+            "title": "레이아웃 정책",
+            "description": "탭 순서, 섹션 순서, 기본 진입 화면을 모두 config로 제어합니다.",
+            "component": "REPORT_LIST",
+            "variantLabel": "policy_list_v1",
+            "actions": [
+              "OPEN_PAGE",
+              "OPEN_TAB",
+              "SCROLL_TO_SECTION",
+              "SHARE_CONTENT"
+            ],
+            "props": {
+              "dataset": "page_menu",
+              "menu_items": "layout_supply>수급 화면 열기>수급 화면으로 이동합니다.>PAGE>supply_page>OPEN_PAGE||layout_news>뉴스 화면 열기>뉴스 화면으로 이동합니다.>PAGE>news_page>OPEN_PAGE||layout_alerts>알림 화면 열기>알림 화면으로 이동합니다.>PAGE>alerts_page>OPEN_PAGE||layout_media_lab>미디어 랩 열기>미디어 테스트 화면을 엽니다.>PAGE>news_media_lab_page>OPEN_PAGE||layout_longterm_chart>장투 차트 설정으로 이동>장투 차트 설정으로 이동합니다.>SCROLL>settings_longterm_chart_registry>SCROLL_TO_SECTION||layout_share_snapshot>현재 구성 공유>현재 구성 요약을 공유합니다.>SHARE>settings_snapshot>SHARE_CONTENT"
+            }
+          },
+          {
+            "id": "settings_support_cta",
+            "title": "빠른 링크",
+            "description": "",
+            "component": "BOTTOM_CTA_BAR",
+            "variantLabel": "bottom_cta_bar_support_v1",
+            "props": {
+              "dismissible": "true",
+              "dismiss_content_description": "운영 링크 CTA 닫기",
+              "headline": "빠른 링크",
+              "body": "업데이트와 지원 링크를 바로 엽니다.",
+              "primary_label": "업데이트 보기",
+              "primary_action": "DOWNLOAD_APK",
+              "secondary_label": "고객센터",
+              "secondary_action": "OPEN_EXTERNAL_URL",
+              "secondary_url": "https://help.example.com/stock-v2"
+            }
+          }
+        ],
+        "props": {
+          "hide_global_notices": "true"
+        }
+      }
+    }
+  ]
+}

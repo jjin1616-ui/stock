@@ -29,6 +29,9 @@ class DaytradeTopItem(BaseModel):
     target_1: float
     stop_loss: float
     thesis: str
+    # 단타2 확장 필드 (optional — 기존 호환성 유지)
+    distance_to_entry_pct: float | None = None
+    expected_r: float | None = None
 
 
 class BuyZone(BaseModel):
@@ -81,6 +84,18 @@ class ResponseStatus(BaseModel):
     algo_version: str | None = None
 
 
+class MarketSnapshot(BaseModel):
+    kospi_close: float | None = None
+    kosdaq_close: float | None = None
+    usdkrw_close: float | None = None
+
+
+class Regime(BaseModel):
+    mode: str | None = None
+    bullets: list[str] = Field(default_factory=list)
+    market_snapshot: MarketSnapshot | None = None
+
+
 class PremarketResponse(BaseModel):
     date: str
     generated_at: datetime
@@ -99,6 +114,9 @@ class PremarketResponse(BaseModel):
     delta_explain: list[str] = Field(default_factory=list)
     themes: list[ThemeItem]
     hard_rules: list[str]
+    regime: Regime | None = None
+    briefing: str | None = None
+    market_temperature: dict | None = None
 
 
 class EodResponse(BaseModel):
@@ -136,7 +154,7 @@ class DeviceRegisterRequest(BaseModel):
 
 class AlertHistoryItem(BaseModel):
     ts: datetime
-    type: Literal["PREMARKET", "EOD", "TRIGGER"]
+    type: Literal["PREMARKET", "EOD", "TRIGGER", "ADMIN", "UPDATE"]
     title: str
     body: str
     payload: dict[str, Any]
@@ -323,15 +341,24 @@ class SupplyItem(BaseModel):
     flow_score: float = 0.0
 
 
+class DailyFlowItem(BaseModel):
+    date: str  # YYYY-MM-DD
+    foreign: int = 0
+    institution: int = 0
+    individual: int = 0
+
+
 class SupplyResponse(BaseModel):
     as_of: datetime
     bas_dd: str
     source: Literal["LIVE", "CACHE", "FALLBACK"] = "LIVE"
     message: str | None = None
+    unit: Literal["value", "qty"] = "value"
     universe_count: int = 0
     candidate_quotes: int = 0
     notes: list[str] = Field(default_factory=list)
     items: list[SupplyItem] = Field(default_factory=list)
+    daily_flow: list[DailyFlowItem] = Field(default_factory=list)
 
 
 class UsInsiderItem(BaseModel):
@@ -607,6 +634,13 @@ class AutoTradePerformanceItem(BaseModel):
     roi_pct: float
     win_rate: float
     mdd_pct: float
+    total_asset_krw: float | None = None
+    daily_return_pct: float | None = None
+    twr_cum_pct: float | None = None
+    holding_pnl_krw: float | None = None
+    holding_pnl_pct: float | None = None
+    today_pnl_krw: float | None = None
+    today_pnl_pct: float | None = None
     updated_at: datetime
 
 
@@ -639,6 +673,10 @@ class AutoTradeAccountSnapshotResponse(BaseModel):
     total_asset_krw: float | None = None
     realized_pnl_krw: float | None = None
     unrealized_pnl_krw: float | None = None
+    real_eval_pnl_krw: float | None = None
+    real_eval_pnl_pct: float | None = None
+    asset_change_krw: float | None = None
+    asset_change_pct: float | None = None
     positions: list[AutoTradeAccountPosition] = Field(default_factory=list)
     message: str | None = None
     updated_at: datetime
@@ -686,6 +724,14 @@ class AutoTradeReservationPreviewItem(BaseModel):
     ticker: str
     name: str | None = None
     source_tab: str = "UNKNOWN"
+    signal_price: float | None = None
+    current_price: float | None = None
+    chg_pct: float | None = None
+    planned_qty: int | None = None
+    planned_price: float | None = None
+    planned_amount_krw: float | None = None
+    order_type: str | None = None
+    merged_count: int | None = None
 
 
 class AutoTradeRunResponse(BaseModel):
@@ -694,6 +740,8 @@ class AutoTradeRunResponse(BaseModel):
     queued: bool = False
     reservation_id: int | None = None
     reservation_status: str | None = None
+    reservation_merged: bool = False
+    reservation_merge_requests: int | None = None
     reservation_preview_count: int | None = None
     reservation_preview_items: list[AutoTradeReservationPreviewItem] = Field(default_factory=list)
     requested_count: int
@@ -707,6 +755,7 @@ class AutoTradeRunResponse(BaseModel):
 class AutoTradeReservationItem(BaseModel):
     id: int
     environment: Literal["paper", "demo", "prod"] = "demo"
+    kind: str = "AUTOTRADE_ENTRY"
     mode: Literal["auto", "confirm"] = "auto"
     status: str
     requested_at: datetime
@@ -729,29 +778,60 @@ class AutoTradeReservationsResponse(BaseModel):
 
 class AutoTradeReservationActionResponse(BaseModel):
     ok: bool = True
-    reservation: AutoTradeReservationItem
+    reservation: AutoTradeReservationItem | None = None
     run_result: AutoTradeRunResponse | None = None
+    message: str | None = None
 
 
 class AutoTradeOrderCancelResponse(BaseModel):
     ok: bool = True
-    order: AutoTradeOrderItem
-    message: str
+    order: AutoTradeOrderItem | None = None
+    scope: str = "symbol"
+    requested_count: int = 0
+    canceled_count: int = 0
+    closed_count: int = 0
+    reserved_count: int = 0
+    failed_count: int = 0
+    skipped_count: int = 0
+    canceled_order_ids: list[int] = Field(default_factory=list)
+    closed_order_ids: list[int] = Field(default_factory=list)
+    reservation_id: int | None = None
+    reservation_status: str | None = None
+    message: str = ""
 
 
 class AutoTradePendingCancelRequest(BaseModel):
     environment: Literal["paper", "demo", "prod"] | None = None
-    max_count: int = Field(default=50, ge=1, le=300)
+    max_count: int = Field(default=20, ge=1, le=300)
 
 
 class AutoTradePendingCancelResponse(BaseModel):
     ok: bool = True
     requested_count: int = 0
     canceled_count: int = 0
+    closed_count: int = 0
+    reserved_count: int = 0
+    reservation_id: int | None = None
     failed_count: int = 0
     skipped_count: int = 0
     canceled_orders: list[AutoTradeOrderItem] = Field(default_factory=list)
     failed_orders: list[AutoTradeOrderItem] = Field(default_factory=list)
+    message: str = ""
+
+
+class AutoTradeReservationPendingCancelRequest(BaseModel):
+    environment: Literal["paper", "demo", "prod"] | None = None
+    max_count: int = Field(default=30, ge=1, le=300)
+
+
+class AutoTradeReservationPendingCancelResponse(BaseModel):
+    ok: bool = True
+    requested_count: int = 0
+    canceled_count: int = 0
+    failed_count: int = 0
+    skipped_count: int = 0
+    canceled_reservation_ids: list[int] = Field(default_factory=list)
+    failed_reservation_ids: list[int] = Field(default_factory=list)
     message: str = ""
 
 
@@ -1234,3 +1314,29 @@ class NewsIngestResponse(BaseModel):
     updated: int = 0
     clusters_updated: int = 0
     mentions_inserted: int = 0
+
+
+# ── 홈 화면 추가 API 스키마 ──
+
+class TradeFeedItem(BaseModel):
+    time: str | None = None
+    ticker: str | None = None
+    name: str | None = None
+    side: str | None = None  # BUY / SELL
+    qty: int | None = None
+    price: float | None = None
+    pnl: float | None = None
+
+class TradeFeedResponse(BaseModel):
+    items: list[TradeFeedItem] = Field(default_factory=list)
+    total: int = 0
+
+class PnlCalendarDay(BaseModel):
+    date: str
+    pnl: float = 0.0
+    trade_count: int = 0
+
+class PnlCalendarResponse(BaseModel):
+    days: list[PnlCalendarDay] = Field(default_factory=list)
+    month_total_pnl: float = 0.0
+    month_trade_count: int = 0

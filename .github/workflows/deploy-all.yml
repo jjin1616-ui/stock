@@ -1,0 +1,43 @@
+name: 전체 배포 (서버 + APK)
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "배포할 브랜치"
+        required: true
+        default: "main"
+  repository_dispatch:
+    types: [deploy-all, deploy-server, deploy-apk]
+
+jobs:
+  deploy-server:
+    name: 1단계 — 서버 배포
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.action == 'deploy-all' ||
+      github.event.action == 'deploy-server'
+    uses: ./.github/workflows/deploy-server.yml
+    with:
+      branch: ${{ github.event.client_payload.branch || inputs.branch || 'main' }}
+    secrets: inherit
+
+  deploy-apk:
+    name: 2단계 — APK 빌드 및 배포
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.action == 'deploy-all' ||
+      github.event.action == 'deploy-apk'
+    needs: deploy-server
+    uses: ./.github/workflows/deploy-apk.yml
+    with:
+      branch: ${{ github.event.client_payload.branch || inputs.branch || 'main' }}
+    secrets: inherit
+
+  apk-only:
+    name: APK만 빌드 및 배포
+    if: github.event.action == 'deploy-apk'
+    uses: ./.github/workflows/deploy-apk.yml
+    with:
+      branch: ${{ github.event.client_payload.branch || 'main' }}
+    secrets: inherit

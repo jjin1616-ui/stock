@@ -111,6 +111,9 @@ class Settings:
     autotrade_market_open_minute: int = int(os.getenv("AUTOTRADE_MARKET_OPEN_MINUTE", "0"))
     autotrade_market_close_hour: int = int(os.getenv("AUTOTRADE_MARKET_CLOSE_HOUR", "15"))
     autotrade_market_close_minute: int = int(os.getenv("AUTOTRADE_MARKET_CLOSE_MINUTE", "30"))
+    # Comma-separated windows using HH:MM-HH:MM (e.g. "08:30-15:30,16:00-18:00").
+    # If empty/invalid, falls back to AUTOTRADE_MARKET_OPEN/CLOSE.
+    autotrade_immediate_windows: str = os.getenv("AUTOTRADE_IMMEDIATE_WINDOWS", "08:30-15:30")
     autotrade_reservation_poll_sec: int = int(os.getenv("AUTOTRADE_RESERVATION_POLL_SEC", "20"))
     autotrade_reservation_batch_size: int = int(os.getenv("AUTOTRADE_RESERVATION_BATCH_SIZE", "30"))
     autotrade_engine_enabled: bool = os.getenv("AUTOTRADE_ENGINE_ENABLED", "true").lower() in ("1", "true", "yes", "on")
@@ -122,6 +125,12 @@ class Settings:
     autotrade_engine_exit_cooldown_sec: int = int(os.getenv("AUTOTRADE_ENGINE_EXIT_COOLDOWN_SEC", "3"))
     autotrade_engine_entry_cooldown_sec: int = int(os.getenv("AUTOTRADE_ENGINE_ENTRY_COOLDOWN_SEC", os.getenv("AUTOTRADE_ENGINE_USER_COOLDOWN_SEC", "8")))
     autotrade_pending_order_guard_sec: int = int(os.getenv("AUTOTRADE_PENDING_ORDER_GUARD_SEC", "300"))
+    autotrade_cancel_sync_limit: int = int(os.getenv("AUTOTRADE_CANCEL_SYNC_LIMIT", "8"))
+    autotrade_cancel_sync_budget_sec: int = int(os.getenv("AUTOTRADE_CANCEL_SYNC_BUDGET_SEC", "35"))
+    # Optional operator override for ad-hoc market calendar changes.
+    # Format: YYYY-MM-DD,YYYY-MM-DD
+    autotrade_extra_holidays: str = os.getenv("AUTOTRADE_EXTRA_HOLIDAYS", "")
+    autotrade_extra_trading_days: str = os.getenv("AUTOTRADE_EXTRA_TRADING_DAYS", "")
     autotrade_push_enabled: bool = os.getenv("AUTOTRADE_PUSH_ENABLED", "true").lower() in ("1", "true", "yes", "on")
     autotrade_push_failure_cooldown_sec: int = int(os.getenv("AUTOTRADE_PUSH_FAILURE_COOLDOWN_SEC", "600"))
     autotrade_push_success_cooldown_sec: int = int(os.getenv("AUTOTRADE_PUSH_SUCCESS_COOLDOWN_SEC", "120"))

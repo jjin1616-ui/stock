@@ -48,6 +48,35 @@ def round_to_tick(price: float, side: str) -> float:
     raise ValueError(f"unknown tick rounding side: {side}")
 
 
+def slippage_cost(price: float, slip_ticks: float = 0.5) -> float:
+    """슬리피지 비용 계산 (기본 0.5틱).
+
+    Args:
+        price: 기준 가격.
+        slip_ticks: 슬리피지 틱 수 (기본 0.5).
+
+    Returns:
+        슬리피지 절대 금액.
+    """
+    return tick_size(price) * slip_ticks
+
+
+def spread_cost(price: float, spread_bps_min: float, slip_ticks: float = 0.5) -> float:
+    """스프레드 + 슬리피지 합산 비용.
+
+    Args:
+        price: 기준 가격.
+        spread_bps_min: 최소 스프레드 (bps).
+        slip_ticks: 슬리피지 틱 수.
+
+    Returns:
+        총 스프레드 비용 (절대 금액).
+    """
+    spread_abs = max(float(price), 0.0) * (float(spread_bps_min) / 10_000.0)
+    slip_abs = slippage_cost(price, slip_ticks)
+    return spread_abs + slip_abs
+
+
 def apply_costs(
     entry_tick: float,
     exit_tick: float,
@@ -55,9 +84,15 @@ def apply_costs(
     cost_out_bps: float,
     spread_bps_min: float,
     price_ref: float,
+    slip_ticks: float = 0.5,
 ) -> tuple[float, float]:
-    spread_abs = max(float(price_ref), 0.0) * (float(spread_bps_min) / 10_000.0)
-    entry_exec = float(entry_tick) * (1.0 + float(cost_in_bps) / 10_000.0) + spread_abs
-    exit_exec = float(exit_tick) * (1.0 - float(cost_out_bps) / 10_000.0) - spread_abs
+    """거래 비용 적용 (수수료 + 스프레드 + 슬리피지).
+
+    Args:
+        slip_ticks: 슬리피지 틱 수 (기본 0.5). 0으로 설정하면 슬리피지 미반영.
+    """
+    total_spread = spread_cost(price_ref, spread_bps_min, slip_ticks)
+    entry_exec = float(entry_tick) * (1.0 + float(cost_in_bps) / 10_000.0) + total_spread
+    exit_exec = float(exit_tick) * (1.0 - float(cost_out_bps) / 10_000.0) - total_spread
     return max(entry_exec, 0.0), max(exit_exec, 0.0)
 

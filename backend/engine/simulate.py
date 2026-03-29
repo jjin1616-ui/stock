@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .costs import COST_PROFILES, apply_costs, round_to_tick
+from .costs import COST_PROFILES, apply_costs, round_to_tick, spread_cost
 
 
 def simulate_trades(
@@ -37,6 +37,7 @@ def simulate_trades(
                 "R",
                 "R_raw",
                 "R_exec",
+                "spread_cost",
                 "exit_reason",
                 "hit_stop",
                 "hit_target",
@@ -86,6 +87,7 @@ def simulate_trades(
                     "R": np.nan,
                     "R_raw": np.nan,
                     "R_exec": np.nan,
+                    "spread_cost": 0.0,
                     "exit_reason": "NO_ENTRY",
                     "hit_stop": False,
                     "hit_target": False,
@@ -115,6 +117,7 @@ def simulate_trades(
                 reason = "EOD"
             exit_tick = round_to_tick(exit_raw, "NEAREST")
 
+        # 비용 적용 (수수료 + 스프레드 + 슬리피지 0.5틱)
         entry_exec, exit_exec = apply_costs(
             entry_tick=entry_tick,
             exit_tick=exit_tick,
@@ -122,7 +125,11 @@ def simulate_trades(
             cost_out_bps=cost_profile.cost_out_bps,
             spread_bps_min=cost_profile.spread_bps_min,
             price_ref=entry_tick,
+            slip_ticks=0.5,
         )
+
+        # 진입/청산 양방향 스프레드 비용 합산 (진단용)
+        sc = spread_cost(entry_tick, cost_profile.spread_bps_min, slip_ticks=0.5) * 2.0
 
         risk_raw = max(entry_raw - stop_raw, 1e-9)
         risk_exec = max(entry_exec - stop_tick, 1e-9)
@@ -150,6 +157,7 @@ def simulate_trades(
                 "R": r_exec,
                 "R_raw": r_raw,
                 "R_exec": r_exec,
+                "spread_cost": sc,
                 "exit_reason": reason,
                 "hit_stop": bool(reason.startswith("STOP")),
                 "hit_target": reason == "TARGET",

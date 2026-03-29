@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+import copy
 import json
+from threading import Lock
 from typing import Any
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
@@ -25,6 +30,81 @@ def _norm_ticker(raw: str) -> str:
 
 def _is_kr_ticker(ticker: str) -> bool:
     return ticker.isdigit() and len(ticker) == 6
+
+
+_AUTOTRADE_CANDIDATE_BUILD_CACHE: dict[str, tuple[datetime, list[dict[str, Any]], dict[str, Any]]] = {}
+_AUTOTRADE_CANDIDATE_BUILD_CACHE_LOCK = Lock()
+_AUTOTRADE_CANDIDATE_BUILD_TTL_SEC = max(
+    5,
+    min(120, int(getattr(settings, "autotrade_candidates_build_ttl_sec", 20))),
+)
+_AUTOTRADE_CANDIDATE_BUILD_INITIAL_TTL_SEC = max(
+    _AUTOTRADE_CANDIDATE_BUILD_TTL_SEC,
+    min(180, int(getattr(settings, "autotrade_candidates_build_initial_ttl_sec", 45))),
+)
+
+
+def _autotrade_candidate_build_cache_key(
+    *,
+    user_id: int,
+    cfg: AutoTradeSetting,
+    limit: int,
+    profile_mode: str,
+) -> str:
+    updated = getattr(cfg, "updated_at", None)
+    updated_key = updated.replace(microsecond=0).isoformat() if isinstance(updated, datetime) else "na"
+    flags = ":".join(
+        [
+            str(int(bool(getattr(cfg, "include_daytrade", True)))),
+            str(int(bool(getattr(cfg, "include_movers", True)))),
+            str(int(bool(getattr(cfg, "include_supply", True)))),
+            str(int(bool(getattr(cfg, "include_papers", True)))),
+            str(int(bool(getattr(cfg, "include_longterm", True)))),
+            str(int(bool(getattr(cfg, "include_favorites", True)))),
+        ]
+    )
+    return f"{int(user_id)}:{int(limit)}:{profile_mode}:{updated_key}:{flags}"
+
+
+def _get_cached_autotrade_candidate_build(
+    cache_key: str,
+    profile_mode: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
+    with _AUTOTRADE_CANDIDATE_BUILD_CACHE_LOCK:
+        hit = _AUTOTRADE_CANDIDATE_BUILD_CACHE.get(cache_key)
+    if hit is None:
+        return None
+    cached_at, items, meta = hit
+    ttl_sec = (
+        _AUTOTRADE_CANDIDATE_BUILD_INITIAL_TTL_SEC
+        if profile_mode == "initial"
+        else _AUTOTRADE_CANDIDATE_BUILD_TTL_SEC
+    )
+    age_sec = (now() - cached_at).total_seconds()
+    if age_sec > ttl_sec:
+        return None
+    return copy.deepcopy(items), copy.deepcopy(meta)
+
+
+def _set_cached_autotrade_candidate_build(
+    cache_key: str,
+    items: list[dict[str, Any]],
+    meta: dict[str, Any],
+) -> None:
+    with _AUTOTRADE_CANDIDATE_BUILD_CACHE_LOCK:
+        _AUTOTRADE_CANDIDATE_BUILD_CACHE[cache_key] = (
+            now(),
+            copy.deepcopy(items),
+            copy.deepcopy(meta),
+        )
+
+
+def invalidate_autotrade_candidate_build_cache(user_id: int) -> None:
+    prefix = f"{int(user_id)}:"
+    with _AUTOTRADE_CANDIDATE_BUILD_CACHE_LOCK:
+        keys = [k for k in _AUTOTRADE_CANDIDATE_BUILD_CACHE if k.startswith(prefix)]
+        for key in keys:
+            _AUTOTRADE_CANDIDATE_BUILD_CACHE.pop(key, None)
 
 
 def get_or_create_autotrade_setting(session: Session, user_id: int) -> AutoTradeSetting:
@@ -134,10 +214,26 @@ def build_autotrade_candidates(
     limit: int = 50,
     diagnostics: dict[str, Any] | None = None,
     profile: str = "full",
+    use_cache: bool = True,
 ) -> list[dict[str, Any]]:
     profile_mode = str(profile or "full").strip().lower()
     if profile_mode not in {"full", "initial"}:
         profile_mode = "full"
+    cache_key = _autotrade_candidate_build_cache_key(
+        user_id=user_id,
+        cfg=cfg,
+        limit=max(1, min(limit, 300)),
+        profile_mode=profile_mode,
+    )
+    if use_cache:
+        cached = _get_cached_autotrade_candidate_build(cache_key, profile_mode=profile_mode)
+        if cached is not None:
+            cached_items, cached_meta = cached
+            if diagnostics is not None:
+                diagnostics["source_counts"] = dict(cached_meta.get("source_counts") or {})
+                diagnostics["warnings"] = list(cached_meta.get("warnings") or [])
+                diagnostics["premarket_available"] = bool(cached_meta.get("premarket_available"))
+            return cached_items
     bucket: dict[str, dict[str, Any]] = {}
     source_counts: dict[str, int] = {"DAYTRADE": 0, "MOVERS": 0, "SUPPLY": 0, "PAPERS": 0, "LONGTERM": 0, "FAVORITES": 0, "RECENT": 0}
     warnings: list[str] = []
@@ -296,11 +392,27 @@ def build_autotrade_candidates(
         diagnostics["source_counts"] = visible_counts
         diagnostics["warnings"] = warnings
         diagnostics["premarket_available"] = premarket is not None
+    if use_cache:
+        meta = {
+            "source_counts": diagnostics.get("source_counts") if diagnostics is not None else {},
+            "warnings": diagnostics.get("warnings") if diagnostics is not None else warnings,
+            "premarket_available": diagnostics.get("premarket_available") if diagnostics is not None else (premarket is not None),
+        }
+        _set_cached_autotrade_candidate_build(cache_key, items=ordered, meta=meta)
     return ordered
 
 
-def _filled_status(status: str) -> bool:
+def _is_real_fill_status(status: str) -> bool:
+    return status in {"PAPER_FILLED", "BROKER_FILLED"}
+
+
+def _is_position_relevant_status(status: str) -> bool:
     return status in {"PAPER_FILLED", "BROKER_SUBMITTED", "BROKER_FILLED"}
+
+
+def _filled_status(status: str) -> bool:
+    # Legacy alias: keep pending 포함 동작(포지션/중복진입 가드용)
+    return _is_position_relevant_status(status)
 
 
 def _parse_order_meta(raw: str | None) -> dict[str, Any]:
@@ -316,6 +428,13 @@ def _order_environment(row: AutoTradeOrder) -> str | None:
     env = str(meta.get("environment") or "").strip().lower()
     if env in {"paper", "demo", "prod"}:
         return env
+    reason = str(getattr(row, "reason", "") or "").strip().upper()
+    if "_PROD_" in reason:
+        return "prod"
+    if "_DEMO_" in reason:
+        return "demo"
+    if "_PAPER_" in reason:
+        return "paper"
     return None
 
 
@@ -350,7 +469,7 @@ def _recent_pending_order_tickers(
         if not ticker:
             continue
         row_env = _order_environment(row)
-        if row_env and target_env and row_env != target_env:
+        if target_env and row_env != target_env:
             continue
         out.add(ticker)
     return out
@@ -359,6 +478,10 @@ def _recent_pending_order_tickers(
 def _normalize_reentry_policy(raw: str | None) -> str:
     p = str(raw or "").strip().lower()
     return p if p in {"immediate", "cooldown", "day_block", "manual_block"} else "cooldown"
+
+
+# manual_block 기본 만료 기간 (일)
+_MANUAL_BLOCK_EXPIRY_DAYS = 7
 
 
 def _active_manual_reentry_block_tickers(
@@ -381,11 +504,33 @@ def _active_manual_reentry_block_tickers(
         .limit(1000)
         .all()
     )
-    return {
-        _norm_ticker(str(getattr(row, "ticker", "") or ""))
-        for row in rows
-        if _norm_ticker(str(getattr(row, "ticker", "") or ""))
-    }
+    now_ts = now()
+    active_tickers: set[str] = set()
+    for row in rows:
+        tk = _norm_ticker(str(getattr(row, "ticker", "") or ""))
+        if not tk:
+            continue
+        # expires_at 컬럼이 있으면 사용, 없으면 blocked_at 기준 7일 계산
+        expires_at = getattr(row, "expires_at", None)
+        if expires_at is not None:
+            if now_ts >= expires_at:
+                # 만료 → 자동 해제
+                row.is_active = False
+                row.released_at = now_ts
+                row.note = (row.note or "") + " | AUTO_EXPIRED"
+                logger.info("[autotrade] manual_block 자동 만료: ticker=%s, expires_at=%s", tk, expires_at)
+                continue
+        else:
+            blocked_at = getattr(row, "blocked_at", None)
+            if blocked_at is not None and (now_ts - blocked_at) >= timedelta(days=_MANUAL_BLOCK_EXPIRY_DAYS):
+                # blocked_at 기준 7일 경과 → 자동 해제
+                row.is_active = False
+                row.released_at = now_ts
+                row.note = (row.note or "") + " | AUTO_EXPIRED_7D"
+                logger.info("[autotrade] manual_block 7일 자동 만료: ticker=%s, blocked_at=%s", tk, blocked_at)
+                continue
+        active_tickers.add(tk)
+    return active_tickers
 
 
 def _upsert_manual_reentry_block(
@@ -395,7 +540,9 @@ def _upsert_manual_reentry_block(
     environment: str,
     ticker: str,
     trigger_reason: str,
+    expires_at: datetime | None = None,
 ) -> None:
+    """manual_block 생성/갱신. expires_at 미지정 시 기본 7일 만료."""
     tk = _norm_ticker(ticker)
     if not tk:
         return
@@ -417,24 +564,29 @@ def _upsert_manual_reentry_block(
         .limit(1)
     )
     ts = now()
+    computed_expires = expires_at or (ts + timedelta(days=_MANUAL_BLOCK_EXPIRY_DAYS))
+    block_kwargs: dict[str, Any] = {
+        "user_id": int(user_id),
+        "environment": env,
+        "ticker": tk,
+        "trigger_reason": trigger,
+        "is_active": True,
+        "blocked_at": ts,
+        "released_at": None,
+        "note": f"{trigger}_MANUAL_BLOCK (expires={computed_expires.isoformat()})",
+    }
+    # expires_at 컬럼이 모델에 존재하면 설정
+    if hasattr(AutoTradeReentryBlock, "expires_at"):
+        block_kwargs["expires_at"] = computed_expires
     if row is None:
-        session.add(
-            AutoTradeReentryBlock(
-                user_id=int(user_id),
-                environment=env,
-                ticker=tk,
-                trigger_reason=trigger,
-                is_active=True,
-                blocked_at=ts,
-                released_at=None,
-                note=f"{trigger}_MANUAL_BLOCK",
-            )
-        )
+        session.add(AutoTradeReentryBlock(**block_kwargs))
         return
     row.is_active = True
     row.blocked_at = ts
     row.released_at = None
-    row.note = f"{trigger}_MANUAL_BLOCK"
+    row.note = block_kwargs["note"]
+    if hasattr(row, "expires_at"):
+        row.expires_at = computed_expires
 
 
 def _recent_trigger_blocked_tickers(
@@ -483,7 +635,7 @@ def _recent_trigger_blocked_tickers(
         if not ticker:
             continue
         row_env = _order_environment(row)
-        if row_env and target_env and row_env != target_env:
+        if target_env and row_env != target_env:
             continue
         out.add(ticker)
     return out
@@ -629,7 +781,7 @@ def _build_pnl_snapshot(session: Session, user_id: int, ymd: date) -> _PnLSnapsh
     closed_pnl_pct_today: list[float] = []
 
     for row in rows:
-        if not _filled_status(str(row.status)):
+        if not _is_real_fill_status(str(row.status)):
             continue
         qty = max(0, int(row.qty or 0))
         price = float(row.filled_price or row.requested_price or 0.0)
@@ -710,7 +862,7 @@ def recompute_daily_metric(session: Session, user_id: int, ymd: date) -> AutoTra
         .order_by(AutoTradeOrder.requested_at.desc())
         .all()
     )
-    day_filled_orders = [o for o in day_orders if _filled_status(str(o.status))]
+    day_filled_orders = [o for o in day_orders if _is_real_fill_status(str(o.status))]
     snapshot = _build_pnl_snapshot(session, user_id, ymd)
     open_positions = snapshot.positions
     tickers = [tk for tk in open_positions.keys() if _is_kr_ticker(str(tk))]
@@ -792,6 +944,32 @@ def run_autotrade_once(
     record_skipped_orders: bool = True,
     candidate_profile: str = "full",
     execution_mode: str = "all",
+    candidate_tickers: list[str] | set[str] | None = None,
+) -> RunResult:
+    return _run_autotrade_once_inner(
+        session, user_id, cfg,
+        dry_run=dry_run,
+        limit=limit,
+        broker_credentials=broker_credentials,
+        record_skipped_orders=record_skipped_orders,
+        candidate_profile=candidate_profile,
+        execution_mode=execution_mode,
+        candidate_tickers=candidate_tickers,
+    )
+
+
+def _run_autotrade_once_inner(
+    session: Session,
+    user_id: int,
+    cfg: AutoTradeSetting,
+    *,
+    dry_run: bool = False,
+    limit: int | None = None,
+    broker_credentials: KisCredentialBundle | None = None,
+    record_skipped_orders: bool = True,
+    candidate_profile: str = "full",
+    execution_mode: str = "all",
+    candidate_tickers: list[str] | set[str] | None = None,
 ) -> RunResult:
     def _resolve_runtime_price(pos: _RuntimePosition, quote_price: float | None) -> tuple[float, str]:
         broker_px = float(pos.current_price or 0.0)
@@ -802,6 +980,11 @@ def run_autotrade_once(
             return qpx, "QUOTE"
         avg = float(pos.avg_price or 0.0)
         if avg > 0.0:
+            # 실시간 가격 없이 평균 매입가로 대체 — 정확도 낮음
+            logger.warning(
+                "[autotrade] AVG_FALLBACK 사용: ticker=%s, avg_price=%.2f (실시간 가격 미확보)",
+                pos.ticker, avg,
+            )
             return avg, "AVG_FALLBACK"
         return 0.0, "UNAVAILABLE"
 
@@ -820,7 +1003,19 @@ def run_autotrade_once(
             cfg,
             limit=max(20, max_orders * 4),
             profile=candidate_profile,
+            use_cache=False,
         )
+        allowed = {
+            _norm_ticker(str(tk or ""))
+            for tk in (candidate_tickers or [])
+            if _norm_ticker(str(tk or ""))
+        }
+        if allowed:
+            candidates = [
+                c
+                for c in candidates
+                if _norm_ticker(str(c.get("ticker") or "")) in allowed
+            ]
     run_id = uuid4().hex[:12]
     if dry_run:
         return RunResult(
@@ -1071,6 +1266,25 @@ def run_autotrade_once(
             qpx = float(q.price or 0.0) if q is not None else 0.0
             current, price_source = _resolve_runtime_price(pos, qpx)
             if current <= 0.0 or pos.avg_price <= 0.0 or pos.qty <= 0:
+                continue
+            # AVG_FALLBACK 가격으로는 손절/익절 판단 불가 — 오판 방지를 위해 EXIT 스킵
+            if price_source == "AVG_FALLBACK":
+                _submit_order(
+                    side="SELL",
+                    source_tab=pos.source_tab,
+                    ticker=ticker,
+                    name=pos.name,
+                    qty=max(0, min(int(pos.qty), int(pos.sellable_qty))),
+                    price=current,
+                    reason="SKIPPED_PRICE_UNCERTAIN",
+                    metadata={
+                        "kind": "EXIT",
+                        "price_source": price_source,
+                        "avg_price": pos.avg_price,
+                        "holding_qty": int(pos.qty),
+                    },
+                    force_skip=True,
+                )
                 continue
             pnl_pct = ((current / pos.avg_price) - 1.0) * 100.0
             per_symbol = symbol_exit_rules.get(ticker)

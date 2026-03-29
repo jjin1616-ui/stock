@@ -1,6 +1,6 @@
 # KoreaStockDash Rules (Living Record)
 
-Last updated: 2026-02-27
+Last updated: 2026-02-28
 
 ## Hard Rules
 - App must install as a single package only (no multiple app variants on device).
@@ -8,10 +8,12 @@ Last updated: 2026-02-27
 - Backend cache-first + queue; never spawn per-request executors.
 - 모든 요청은 특별히 "분석만"을 명시하지 않는 한 실제 작업(수정/배포/검증)을 수행한다.
 - 사용자 지정 운영 원칙: "항상 작업하고 히스토리에 기록"을 기본값으로 적용한다(분석/브레인스토밍 요청은 예외).
-- 작업/배포/검증/규칙 변경이 발생한 턴에는 `HISTORY_2026-02-26.md`에 타임스탬프/변경내역/검증결과를 반드시 기록한다.
+- 작업/배포/검증/규칙 변경이 발생한 턴에는 **당월 히스토리 파일** (`server_rules/HISTORY_YYYY-MM.md`)에 타임스탬프/변경내역/검증결과를 반드시 기록한다.
 - 히스토리 기록 누락이 확인되면 즉시 같은 턴에서 보완 기록 후 다음 작업을 진행한다.
 - 실전 손익/주문 정확도에 영향을 주는 주제는 구현 전에 반드시 `보수안/균형안/최선안` 3안과 권장안 1개를 제시한다(장단점/리스크/운영비용 포함).
 - 사용자 요구가 실전 리스크를 키우거나 모호할 때는 반박을 생략하지 않는다. 반박 시 반드시 대체안을 함께 제시한다.
+- 수정은 "코드 기준"이 아니라 "사용자 행동 의도"를 1순위로 설계한다.  
+  - 예: `취소` 클릭의 의도는 "대기 주문 정리"이며, 실패 코드 반복 노출이 아니라 `즉시취소/장중 자동예약/상태정리` 중 하나로 종결되어야 한다.
 - If data is missing, return fallback metadata; do not fabricate tickers/prices.
 - UI must show report source (LIVE/CACHE/FALLBACK).
 - Quotes may be polled on an interval for real-time UX even when the report payload is CACHE; quote UI must still show quote quality (실시간/지연) and never imply the report itself is LIVE.
@@ -85,6 +87,7 @@ Last updated: 2026-02-27
 - 보유 화면에서 `모의` 필터는 `demo` 실계좌 연동(`BROKER_LIVE`) 보유만 노출한다(`paper` 장부/추정치 합산 금지).
 - 보유 화면 거래 이력 필터에서도 `모의=demo`만 허용한다(`paper` 체결은 별도 레거시로 분리하고 모의 이력에 섞지 않는다).
 - 체결 이력에 있는 종목이 보유 목록에서 누락되면 1순위로 필터/소스 분기 회귀를 점검한다(거래 이력/보유 목록 기준 불일치 금지).
+- 보유 상세 시트의 액션(전량/부분 매도) 다이얼로그 상태는 `selectedHolding`와 분리해 관리한다(시트 닫힘과 겹쳐 클릭이 무반응처럼 보이는 회귀 금지).
 - 자동매매 화면이 `테스트(모의투자)`일 때 계좌 현황/보유 수량 기준은 `demo` 실계좌 연동 스냅샷만 사용한다(`paper` 장부/추정치 병합 금지).
 - 상세 종목 화면의 `모의구매` 요청 모드는 `paper`가 아니라 `demo`를 사용한다(내부 장부 체결로 우회 금지).
 - 서버는 구버전 호환 요청으로 `manual-buy/manual-sell`에 `mode=paper`가 들어와도 `demo`로 강제 전환한다(내부모의 체결 재발 방지).
@@ -134,6 +137,11 @@ Last updated: 2026-02-27
   - compile/runtime 버전 불일치가 있으면 배포 금지.
 - Compose BOM 사용 프로젝트에서 특정 Compose artifact를 명시 추가할 때는 BOM/직접 버전이 충돌하지 않도록 목표 버전으로 강제 정렬하고, 정렬 근거를 히스토리에 기록한다.
 - 크래시 이슈 해결 완료 판정은 `설정->자동매매`, `autotrade route`, `holdings route` 진입 로그켓에서 `FATAL EXCEPTION` 부재까지 확인해야 한다.
+- 동적 탭/메뉴 셸에서 탭 전환 시 이전 탭의 스크롤 위치가 다음 탭에 그대로 남으면 안 된다. 탭을 바꾸면 항상 화면 최상단(헤더/첫 섹션)부터 다시 보여야 하며, 이 회귀는 에뮬레이터 탭 전환으로 검증한다.
+- 실데이터 비용이 큰 탭(`수급`, `미장` 등)은 startup preload 한 번으로 성공 여부를 단정하지 않는다. 부팅 시 fallback으로 내려와도 사용자가 탭에 실제 진입할 때 인증 가능 상태면 focused reload를 한 번 더 시도해 live 복구를 우선한다.
+- 운영/설정 패널의 데이터 원천 표기는 raw 문자열(`REMOTE`, `SEED`)을 그대로 노출하지 않는다. 사용자 표기는 기본적으로 `LIVE/CACHE/FALLBACK` 축으로 정규화하고, 필요한 경우에만 `LIVE(실계좌)`처럼 괄호 설명을 덧붙인다.
+- 카드/리스트 본문에서도 raw source 문자열(`NAVER_RT`, `REMOTE`, `SEED`)을 그대로 노출하지 않는다. 사용자 표기는 공통 정규화 함수를 거쳐 `LIVE/CACHE/FALLBACK` 축으로 통일한다.
+- 서버 타임스탬프는 timezone 포함/미포함 포맷이 혼재할 수 있으므로, 사용자 표기 함수는 두 포맷을 모두 허용해야 한다. ISO 원문이 카드/배너에 그대로 보이면 회귀로 간주한다.
 
 ## Access Control Rules (Added 2026-02-10)
 - 모든 API는 인증 토큰이 없으면 접근 불가(health/auth 제외).
@@ -170,10 +178,15 @@ Last updated: 2026-02-27
 - 장시간 외 실행 요청은 즉시 실패시키지 말고 `예약 가능 안내 -> 사용자 확인 -> 예약 등록` 흐름을 기본 제공한다(설정에서 예약 비활성 시에만 차단).
 - 자동매매 주문 실행 원칙은 `주문 가능 시간대 = 즉시 주문`, `주문 불가 시간대 = 예약`으로 고정한다(정규장 단일 하드코딩으로 전체 판단 금지).
 - 예약 주문은 실행 트리거 시점에 주문 가능 여부를 재검증해야 하며, 여전히 주문 불가면 즉시 취소하고 원인코드/근거값/조치문구를 함께 기록한다.
+- 장외 차단(`MARKET_*_BLOCKED`)이 결정된 주문은 후속 분기에서 다른 사유(`KIS_TRADING_DISABLED` 등)로 덮어쓰지 않는다. 차단 사유를 최종 reason으로 유지해 사용자 안내/이력과 일치시킨다.
 - 장상태 판정은 브로커 주문 가능 신호(원문 코드/메시지)를 우선 사용하고, 로컬 시간 판정은 fallback 용도로만 사용한다.
+- 장상태 로컬 판정은 `주말만 휴장` 로직을 금지하고, 한국 공휴일 캘린더(대체공휴일 포함) + 운영 오버라이드(`AUTOTRADE_EXTRA_HOLIDAYS`, `AUTOTRADE_EXTRA_TRADING_DAYS`)를 함께 사용한다.
 - 자동매매/보유/상세의 사용자 노출 문구에서 `브로커` 용어는 사용하지 않고 `증권사`로 통일한다(상태 라벨/오류문구/용어집 포함).
 - 자동매매 히스토리는 `run_id` 단위로 저장하고, 주문 상태(`PAPER_FILLED/BROKER_SUBMITTED/BROKER_REJECTED/SKIPPED`)를 숨기지 않는다.
 - 수익 지표는 최소 `orders_total`, `filled_total`, `buy_amount_krw`, `eval_amount_krw`, `unrealized_pnl_krw`, `roi_pct`, `win_rate`, `mdd_pct`를 일단위로 제공한다.
+- 보유/자동 손익 집계는 사용자 노출 기준에서 `demo/prod`를 분리 계산하고, `paper` 레거시 체결은 기본 손익 집계에서 제외한다.
+- 주문 기반 체결(`PAPER_FILLED/BROKER_FILLED`)이 0건이어도 `BROKER_LIVE` 계좌 스냅샷이 있으면 당일 손익 항목을 fallback으로 생성해 0원 고정 오인을 방지한다.
+- 성능 집계의 `updated_at` 비교는 naive/aware 혼합을 금지하고, 모든 datetime을 `Asia/Seoul` aware로 정규화한다.
 - 자동매매 초기 진입은 `/autotrade/bootstrap` 단일 API를 우선 사용하고, 무거운 섹션(후보군/성과)은 지연 로딩으로 분리한다(초기 화면 전체 블로킹 금지).
 - `/autotrade/candidates`는 `profile=initial` 경량 조회 + 단기 캐시(TTL) 우선으로 처리하고, 화면은 요약/상세 갱신을 분리한다.
 - 일 손실 한도(`max_daily_loss_pct`) 초과 시 자동 주문을 즉시 중지하고 `DAILY_LOSS_LIMIT_REACHED` 상태를 반환한다.
@@ -193,6 +206,8 @@ Last updated: 2026-02-27
 - `demo/prod`에서 `KIS_TRADING_ENABLED=false`인 경우 체결을 생성하지 않고 `SKIPPED(KIS_TRADING_DISABLED)`로 처리한다(`PAPER_FILLED` 가짜 체결 생성 금지).
 - 주문 이력 응답(`AutoTradeOrderItem`)에는 `environment`를 포함해 화면 필터가 모의/실전을 명시적으로 구분할 수 있어야 한다.
 - 주문/스킵 원인 응답은 표준 구조(`결론 한 줄`, `reason_code`, `근거값(evidence)`, `바로 조치(action)`)를 기본으로 제공한다(모호한 `증권사 거부` 단독 문구 금지).
+- 주문 이력 응답의 `reason_detail`은 상태값과 무관하게 항상 채운다(접수/체결/취소/오류/스킵 모두 `conclusion/reason_code/evidence/action` 누락 금지).
+- 자동매매 실행 결과의 `주요 사유` 집계는 `reason` 원문 문자열이 아니라 `reason_code`만 기준으로 계산한다(원문 파싱 기반 집계 금지).
 - 자동매매는 수동 버튼 실행만이 아니라 서버 상시 엔진(scheduler)으로도 장중에 주기 실행되어야 하며, 익절/손절 평가는 실행 버튼과 무관하게 계속 동작해야 한다.
 - 상시 엔진은 `청산(익절/손절)`과 `신규 진입` 주기를 분리해 운영한다(청산 주기 더 짧게, 진입 주기 더 길게). 청산 지연으로 인한 손절 미스가 발생하지 않도록 청산 사이클을 우선 보장한다.
 - 상시 엔진은 `SKIPPED` 주문을 무분별하게 적재하지 않는다(로그/DB 폭증 방지). 엔진 경량 후보 프로필(`initial`)을 사용해 주기 실행 지연을 줄인다.
@@ -202,11 +217,28 @@ Last updated: 2026-02-27
   - 자동 진입/청산 주문 접수 시: `주문 접수` 푸시
   - 반복 실패 시: 같은 사유코드 기준 쿨다운을 적용해 푸시 폭주를 방지한다.
 - 자동매매는 동일 사용자/동일 환경/동일 종목의 `BROKER_SUBMITTED` 대기주문이 최근 보호구간(`AUTOTRADE_PENDING_ORDER_GUARD_SEC`, 기본 300초) 내 존재하면 중복 주문을 차단해야 한다(매수/매도 모두 적용).
+- 중복 주문 방지는 자동/수동 주문 모두 동일 기준으로 적용한다.
+  - 자동: 후보 중복 제거(티커 기준 1건) + 대기주문 보호구간 차단
+  - 수동: 동일 사용자/환경/종목/사이드 대기주문이 보호구간 내 존재하면 새 주문을 만들지 않고 `PENDING_*_ORDER`로 스킵
+  - 실행 동시성: 동일 사용자/환경에서 주문 실행이 진행 중이면 `RUN_ALREADY_IN_PROGRESS`로 즉시 반환
+- 장시간 외 자동매매 실행이 반복 호출되면 `AUTOTRADE_ENTRY` 예약은 동일 사용자/동일 환경 기준으로 병합해야 한다(새 예약 다건 생성 금지).
+  - 병합 시 응답은 `RESERVATION_MERGED`를 반환하고, 예약 대상은 티커 기준 dedupe를 유지한다.
+  - 예약 미리보기(`preview_items`)에는 최소 `planned_qty/planned_price/planned_amount_krw/order_type/merged_count`를 포함해 사용자에게 수량·가격·금액 근거를 노출한다.
+  - 신규 예약 생성 시점에도 `preview_items`는 티커 기준 dedupe를 먼저 적용한다(동일 실행 payload 내 중복 종목 다건 생성 금지).
+  - 예약/취소 preview의 ticker는 한국주식 6자리 숫자 코드만 허용한다(비정상 문자열 ticker는 저장/병합 대상에서 제외).
 - 자동매매 성공 알림(`AUTOTRADE_ORDER_SUBMITTED`, `AUTOTRADE_EXIT_EXECUTED`)도 시그니처 기반 쿨다운(`AUTOTRADE_PUSH_SUCCESS_COOLDOWN_SEC`, 기본 120초)을 적용해 동일 내용 연속 푸시를 차단한다.
 - `BROKER_SUBMITTED` 상태는 체결이 아니라 접수 상태로 표기한다(푸시/화면/용어집 공통).
 - `BROKER_SUBMITTED` 접수대기 주문은 자동매매 화면 `진행중/미체결` 섹션에서 개별 취소/전체 취소를 제공해야 하며, 성공 시 상태를 `BROKER_CANCELED`로 명시한다.
+- 접수취소 실패 원문이 `원주문번호 없음/주문없음(예: 40320000)` 계열이면 재시도 요구로 두지 않고, 해당 주문을 `BROKER_CLOSED`(증권사 상태 정리)로 즉시 전환해 진행중/미체결에서 제거한다.
+- 취소 API는 실패를 단순 반환하지 말고 `취소완료/장시간외예약/상태정리` 3갈래 결과로 정규화해 사용자에게 다음 행동이 필요 없는 문구를 우선 제공한다.
+- `pending-cancel` 일괄취소는 기본 배치 크기를 20건으로 운용한다(앱/서버 기본값 동일화). 대량 취소는 여러 번 나눠 실행한다.
+- `pending-cancel` 실행 중 첫 실패가 장시간외 계열 원문(`장종료/장시작전/시간외` 등)으로 판정되면, 나머지 대상은 `ORDER_CANCEL` 예약으로 전환한다(실패 누적 대신 장중 자동 취소 예약).
+- 장시간외 접수취소 결과 문구는 사용자 재시도 요구형(`장중에 다시 시도`)을 금지하고, `장중 자동 취소 예약 완료(예약번호)` 형식으로 안내한다.
+- 자동매매 일괄취소 API 호출은 앱 `slowApi`(긴 read timeout) 경로를 사용한다(일반 20초 클라이언트 사용 금지).
 - 자동매매 화면은 `진행중/미체결`, `체결`, `실패/스킵`을 분리 노출한다. 체결 섹션에는 `PAPER_FILLED/BROKER_FILLED`만 표시하고 `BROKER_SUBMITTED`는 진행중 섹션으로 고정한다.
 - 예약 주문 카드는 예약 시점 대상 종목(`preview_count`, `preview_items`)과 취소/실행 액션을 함께 제공해야 한다(예약 대상 0건 오인 방지).
+- 자동매매 `진행중/미체결` 카드에서 `예약 주문` 섹션은 예약 건수 0이어도 숨기지 않는다(사용자는 항상 예약 영역의 상태/동선을 확인할 수 있어야 한다).
+- 자동매매 `진행중/미체결` 카드는 `체결대기`와 `예약` 모두 개별취소 + 일괄취소를 제공해야 하며, 일괄취소 결과는 `요청/취소/실패/스킵` 카운트를 즉시 노출한다.
 - 자동매매 주문 취소 실패(예: 장종료/장전/환경불일치)는 HTTP 400 숫자 오류만 노출하지 않는다. API는 `ok=false + message`를 우선 반환하고, 앱은 해당 `message`를 사용자 문장으로 그대로 안내한다.
 - 배포 스크립트는 `backend/scripts/preflight_autotrade_contract.py`를 필수 게이트로 실행한다. 미통과 시 배포를 중단한다(취소 API 계약 회귀 차단).
 
@@ -226,6 +258,7 @@ Last updated: 2026-02-27
 - 브로커 토큰 발급 제한(EGW00133) 재현 시: 디스크 캐시 토큰을 우선 사용하고, 연속 실패는 지수 지연 재시도로 완화한다. 연동 실패 시 앱은 `추정치 표시`가 아니라 `미연동/점검 필요` 상태를 노출하고 보유 목록은 숨긴다.
 - KIS 잔고 조회(`inquire-balance`)는 `CTX_AREA_FK100/NK100` 연속조회를 끝까지 수행한다(페이지 1개만 조회해 20건 상한으로 보유를 누락시키는 구현 금지).
 - KIS 잔고 요약(`output2`)과 포지션 합계(`output1`)가 어긋나면 차이 로그를 남기고, 화면 노출 값은 단일 계산 기준(포지션 합계 기반)으로 정합성을 유지한다.
+- KIS 총자산은 `output2.tot_evlu_amt`(또는 `tot_asst_amt/nass_amt`)를 우선 사용한다. `dnca_tot_amt + scts_evlu_amt` 강제합산으로 총자산을 과대계산하는 구현은 금지한다.
 - KIS 토큰 만료시각(`access_token_token_expired`)은 KST 절대시각으로 해석해 UTC 기준으로 저장/비교한다(서버 로컬 타임존 비교 금지).
 - KIS 주문/잔고 응답에서 `기간 만료된 token` 계열 메시지 또는 토큰 만료 코드가 감지되면, 토큰 캐시(메모리/디스크)를 즉시 무효화하고 1회 재발급 재시도한다.
 - FastAPI 경로 설계 시 정적 경로와 동적 경로 충돌을 금지한다. `/{id}` 계열보다 고정 세그먼트(예: `/pending-cancel`)를 우선 배치하고, 예약어(`pending`, `latest`, `summary`)가 동적 파라미터로 해석되지 않도록 명시 경로를 분리한다.
@@ -393,3 +426,20 @@ Last updated: 2026-02-27
 - `RULES.md` 변경이 발생한 턴은 동일 턴에 `HISTORY_2026-02-26.md`를 함께 업데이트한다.
 - 사용자 명시 규칙: "항상 작업하고 히스토리에 기록"을 기본 실행 원칙으로 유지한다.
 - 모든 턴의 최종 응답 직전에 `HISTORY_2026-02-26.md` 신규 항목 존재를 확인하고, 누락 시 같은 턴에서 즉시 보완 기록 후 응답한다.
+
+## AutoTrade Cancel Throughput Rules (Added 2026-02-28)
+- `BROKER_SUBMITTED` 취소 API는 대량 동기 취소를 금지한다. 동기 처리 상한(건수/시간예산) 초과분은 즉시 `ORDER_CANCEL` 예약으로 이관한다.
+- 취소 응답은 항상 종결형이어야 한다: `취소`, `상태정리(BROKER_CLOSED)`, `예약`, `실패`, `스킵` 건수를 분리해 반환한다.
+- 증권사 `원주문번호 없음/주문 미존재(예: 40320000)`은 실패가 아니라 `BROKER_CLOSED` 상태정리로 처리한다(유령 미체결 누적 금지).
+- 예약 취소 실행 경로(`ORDER_CANCEL`)도 동일한 상태정리 규칙을 적용한다(수동 취소 경로와 의미 일치).
+
+## Auth Logging Resilience Rules (Added 2026-02-28)
+- 로그인/비밀번호 변경 흐름에서 로그인 이벤트 기록 실패(DB lock 등)는 인증 흐름을 중단시키면 안 된다.
+- 인증 핵심 경로와 감사성 로그 경로를 분리하고, 감사성 로그 실패 시 경고 로그만 남긴다.
+
+## External Research Rules (Added 2026-03-09)
+- 외부 조사 시 우선 참고 소스는 `GitHub`, `구글 검색`, `Android 공식 가이드` 3종으로 고정한다.
+- 아키텍처/플랫폼/업데이트 전략 결정은 가능하면 `Android 공식 문서`를 1차 근거로 삼는다.
+- `GitHub`는 구현 사례와 운영 패턴 검증용으로 사용하고, 단일 예제 저장소를 정답처럼 채택하지 않는다.
+- `구글 검색`은 자료 발견용으로 사용하고, 최종 판단 근거는 공식 문서 또는 검증 가능한 저장소로 제한한다.
+- 외부 조사 결과를 반영한 규칙 변경 시 `RULES.md`와 최신 `HISTORY_2026-02-26.md`를 같은 턴에 함께 업데이트한다.
