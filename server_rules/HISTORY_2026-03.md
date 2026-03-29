@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-03-29 KST
+### 단타2 탭 신설 — 풀 리디자인 + 실시간 강화
+#### 변경 내역
+- 서버: `schemas.py` — `DaytradeTopItem`에 `distance_to_entry_pct`, `expected_r` 선택 필드 추가 (기존 호환 유지)
+- 서버: `strategy.py` — 종목별 진입 거리%, 예상 R값 계산 로직 추가
+- 앱: `ApiModels.kt` — `DaytradeTopItemDto`에 `distanceToEntryPct`, `expectedR` 필드 추가
+- 앱: `AppNavigation.kt` — `PREMARKET2("premarket2", "단타2")` 탭 및 라우팅 추가
+- 앱: `Screens.kt` — `PreMarket2Screen` + `PreMarket2Body` 신규 화면 (362줄)
+- 대시보드 헤더: 게이트 상태 + 시장 체제 + 시장 온도 종합 표시
+- 카드 확장: 실시간 진입 거리%, 예상 R값, 상태 태그(진입 가능/대기/무효)
+- 확장 용어집: R값, 진입 거리, 시장 체제, 시장 온도 설명 추가
+#### 배포
+- APK: 미배포 (깃 브랜치 `claude/initial-setup-bPoUq` 푸시 완료)
+- 서버: 미배포 (로컬 수정 완료, EC2 배포 대기)
+#### 검증
+- 깃 커밋 및 푸시 정상 완료
+#### 회고
+- 설명에 영어 혼용 → **모든 출력은 한글 원칙** 재확인. CLAUDE.md 섹션 1 소통 규칙 준수 필수
+
+---
+
 ## 2026-03-27 23:30 KST
 
 ### Codex 검증 결과 기반 5개 이슈 수정
