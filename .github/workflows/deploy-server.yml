@@ -1,0 +1,68 @@
+name: 서버 배포
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "배포할 브랜치"
+        required: true
+        default: "main"
+  workflow_call:
+    inputs:
+      branch:
+        type: string
+        required: false
+        default: "main"
+
+jobs:
+  deploy-server:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch || github.ref }}
+
+      - name: SSH 키 설정
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2.pem
+          chmod 600 ~/.ssh/ec2.pem
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: 서버 코드 전송 (app/)
+        run: |
+          rsync -avz \
+            --exclude='__pycache__' --exclude='*.pyc' \
+            --exclude='*.db' --exclude='*.db-*' \
+            --exclude='.venv' --exclude='results/' --exclude='.localdata/' \
+            -e "ssh -i ~/.ssh/ec2.pem" \
+            backend/app/ ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/stock/backend/app/
+
+      - name: 서버 코드 전송 (engine/)
+        run: |
+          rsync -avz \
+            --exclude='__pycache__' --exclude='*.pyc' \
+            -e "ssh -i ~/.ssh/ec2.pem" \
+            backend/engine/ ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/stock/backend/engine/
+
+      - name: 서버 코드 전송 (루트 파일)
+        run: |
+          scp -i ~/.ssh/ec2.pem \
+            backend/main.py backend/run.py backend/requirements.txt \
+            ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/stock/backend/
+
+      - name: 서버 재시작 및 상태 확인
+        run: |
+          ssh -i ~/.ssh/ec2.pem ubuntu@${{ secrets.EC2_HOST }} \
+            'sudo systemctl restart stock-backend.service && sleep 3 && sudo systemctl is-active stock-backend.service'
+
+      - name: API 헬스체크
+        run: |
+          sleep 2
+          STATUS=$(curl -sf http://${{ secrets.EC2_HOST }}:8000/health | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok',''))" 2>/dev/null || echo "FAIL")
+          if [ "$STATUS" != "True" ]; then
+            echo "::error::서버 헬스체크 실패"
+            exit 1
+          fi
+          echo "서버 헬스체크 통과"

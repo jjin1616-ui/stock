@@ -1,0 +1,25 @@
+name: 전체 배포 (서버 + APK)
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "배포할 브랜치"
+        required: true
+        default: "main"
+
+jobs:
+  deploy-server:
+    name: 1단계 — 서버 배포
+    uses: ./.github/workflows/deploy-server.yml
+    with:
+      branch: ${{ inputs.branch }}
+    secrets: inherit
+
+  deploy-apk:
+    name: 2단계 — APK 빌드 및 배포
+    needs: deploy-server
+    uses: ./.github/workflows/deploy-apk.yml
+    with:
+      branch: ${{ inputs.branch }}
+    secrets: inherit
