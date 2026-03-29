@@ -4851,3 +4851,365 @@ private fun alertTypeKo(type: String): String = ""
 private fun riskPresetKo(risk: String): String = ""
 private fun buildPremarketShare(data: PremarketReportDto, eval: com.example.stock.data.api.EvalMonthlyDto?): String = ""
 private fun shareText(context: android.content.Context, text: String, onError: (String) -> Unit) {}
+
+// ══════════════════════════════════════════════════════════════════════
+// ██  PreMarket2Screen  ─  단타2 풀 리디자인
+// ══════════════════════════════════════════════════════════════════════
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PreMarket2Screen() {
+    val context = LocalContext.current
+    val vm: PremarketViewModel = viewModel(factory = AppViewModelFactory(ServiceLocator.repository(context)))
+    val state = vm.reportState.value
+    val quotes = vm.quoteState
+    val miniCharts = vm.miniChartState
+    val repo = ServiceLocator.repository(context)
+    val appSettings = repo.getSettings()
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val favorites = rememberFavoritesController(repo, snackbarHostState)
+    var refreshToken by remember { mutableStateOf(0) }
+
+    var chartOpen by remember { mutableStateOf(false) }
+    var chartLoading by remember { mutableStateOf(false) }
+    var chartError by remember { mutableStateOf<String?>(null) }
+    var chartData by remember { mutableStateOf<ChartDailyDto?>(null) }
+    var chartCache by remember { mutableStateOf<Map<ChartRange, ChartDailyDto>>(emptyMap()) }
+    var chartQuote by remember { mutableStateOf<RealtimeQuoteItemDto?>(null) }
+    var chartTitle by remember { mutableStateOf("") }
+    var chartTicker by remember { mutableStateOf("") }
+    var chartRange by remember { mutableStateOf(ChartRange.D1) }
+    val chartSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    LaunchedEffect(Unit) {
+        vm.load()
+        favorites.refresh()
+    }
+    val doRefresh = {
+        refreshToken += 1
+        vm.load(force = true)
+        favorites.refresh()
+    }
+
+    Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = { AppTopBar(title = "단타2 분석기", showRefresh = true, onRefresh = { doRefresh() }) },
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+    ) { inner ->
+        Box(modifier = Modifier.padding(inner).fillMaxSize()) {
+            if (state.data != null) {
+                PreMarket2Body(
+                    data = state.data,
+                    quotes = quotes,
+                    miniCharts = miniCharts,
+                    updatedAt = state.refreshedAt ?: state.data?.generatedAt,
+                    daytradeDisplayCount = appSettings.daytradeDisplayCount,
+                    source = state.source,
+                    refreshToken = refreshToken,
+                    refreshLoading = state.loading,
+                    onRefresh = doRefresh,
+                    snackbarHostState = snackbarHostState,
+                    favoriteTickers = favorites.favoriteTickers,
+                    onToggleFavorite = { item, desired ->
+                        favorites.setFavorite(item = item, sourceTab = "단타2", desiredFavorite = desired)
+                    },
+                    onOpenChart = { ticker, name ->
+                        chartTitle = name
+                        chartTicker = ticker
+                        chartQuote = quotes[ticker]
+                        chartOpen = true
+                        chartRange = ChartRange.D1
+                        chartCache = emptyMap()
+                        chartLoading = true
+                        chartError = null
+                        chartData = null
+                        scope.launch {
+                            repo.getChartDaily(ticker, 2)
+                                .onSuccess { data -> chartData = data; chartCache = chartCache + (ChartRange.D1 to data) }
+                                .onFailure { e -> chartError = e.message ?: "차트 로드 실패" }
+                            chartLoading = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else if (state.loading) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(10.dp))
+                        Text("단타2 데이터를 불러오는 중...", color = Color(0xFF64748B))
+                    }
+                }
+            } else {
+                Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    Text(state.error ?: "데이터를 불러오지 못했습니다.", color = Color.Red)
+                    Button(onClick = vm::load, modifier = Modifier.padding(top = 16.dp)) { Text("새로고침") }
+                }
+            }
+        }
+    }
+
+    val sheetMaxHeight = (LocalConfiguration.current.screenHeightDp * 0.78f).dp
+    if (chartOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { chartOpen = false },
+            sheetState = chartSheetState,
+        ) {
+            StockChartSheet(
+                title = chartTitle,
+                ticker = chartTicker,
+                quote = chartQuote,
+                loading = chartLoading,
+                error = chartError,
+                data = chartData,
+                range = chartRange,
+                onRangeChange = { next ->
+                    chartRange = next
+                    chartCache[next]?.let { cached ->
+                        chartData = cached; chartLoading = false; chartError = null
+                    } ?: run {
+                        chartLoading = true; chartError = null; chartData = null
+                        scope.launch {
+                            val reqDays = if (next == ChartRange.D1) 2 else next.days
+                            repo.getChartDaily(chartTicker, reqDays)
+                                .onSuccess { d -> chartData = d; chartCache = chartCache + (next to d) }
+                                .onFailure { e -> chartError = e.message ?: "차트 로드 실패" }
+                            chartLoading = false
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().heightIn(max = sheetMaxHeight).padding(16.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PreMarket2Body(
+    data: PremarketReportDto,
+    quotes: Map<String, RealtimeQuoteItemDto>,
+    miniCharts: Map<String, List<ChartPointDto>>,
+    updatedAt: String?,
+    daytradeDisplayCount: Int,
+    source: UiSource,
+    refreshToken: Int,
+    refreshLoading: Boolean,
+    onRefresh: () -> Unit,
+    snackbarHostState: SnackbarHostState,
+    favoriteTickers: Set<String>,
+    onToggleFavorite: (CommonReportItemUi, Boolean) -> Unit,
+    onOpenChart: (String, String) -> Unit,
+    modifier: Modifier,
+) {
+    var sortId by remember { mutableStateOf(SortOptions.DEFAULT) }
+    var query by remember { mutableStateOf("") }
+    var selectedThemeTag by remember { mutableStateOf("") }
+
+    val topItems = data.daytradeTop.orEmpty()
+    val watchItems = data.daytradeWatch.orEmpty()
+    val dayItems = topItems + watchItems
+    val gateOn = data.daytradeGate?.on == true
+    val topTickerSet = remember(topItems) {
+        topItems.mapNotNull { it.ticker?.trim() }.filter { it.isNotBlank() }.toSet()
+    }
+
+    val themeCounts = remember(dayItems) {
+        val counts = mutableMapOf<String, Int>()
+        for (it in dayItems) {
+            for (t in it.tags.orEmpty()) {
+                val key = t.trim()
+                if (key.isBlank()) continue
+                counts[key] = (counts[key] ?: 0) + 1
+            }
+        }
+        counts.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key }).take(20)
+    }
+    val themeOptions = remember(themeCounts) {
+        buildList {
+            add(com.example.stock.ui.common.SelectOptionUi("", "전체"))
+            themeCounts.forEach { e ->
+                add(com.example.stock.ui.common.SelectOptionUi(e.key, "${e.key} (${e.value})"))
+            }
+        }
+    }
+    val filteredDayItems = remember(dayItems, selectedThemeTag) {
+        if (selectedThemeTag.isBlank()) dayItems else dayItems.filter { it.tags.orEmpty().any { t -> t == selectedThemeTag } }
+    }
+
+    val rankedDayItems = filteredDayItems
+        .map { item ->
+            val tickerKey = item.ticker?.trim().orEmpty()
+            val quote = quotes[tickerKey]
+            val tags = item.tags.orEmpty().filter { it.isNotBlank() }
+            val aiSignalScore = resolveAiSignalSortScore(
+                thesis = item.thesis,
+                quote = quote,
+                miniPoints = miniCharts[tickerKey],
+            )
+            val action = resolveDaytradeRealtimeAction(item = item, quote = quote, gateOn = gateOn)
+            RankedDaytradeItem(item = item, quote = quote, tags = tags, aiSignalScore = aiSignalScore, action = action)
+        }
+        .sortedWith(
+            compareBy<RankedDaytradeItem> { it.action.priority }
+                .thenBy { if (topTickerSet.contains(it.item.ticker?.trim().orEmpty())) 0 else 1 }
+                .thenByDescending { it.aiSignalScore ?: Double.NEGATIVE_INFINITY }
+                .thenByDescending { it.quote?.chgPct ?: Double.NEGATIVE_INFINITY }
+                .thenBy { it.item.name ?: "" }
+        )
+
+    val readyCount = rankedDayItems.count { it.action.label.startsWith("진입 가능") || it.action.label.startsWith("조건부 진입") }
+    val waitingCount = rankedDayItems.count { it.action.label.startsWith("진입 대기") || it.action.label.startsWith("조건부 대기") }
+    val invalidCount = rankedDayItems.count { it.action.label.startsWith("무효") }
+    val targetHitCount = rankedDayItems.count { it.action.label.startsWith("목표 도달") }
+
+    // 단타2: 대시보드 요약을 statusMessage에 포함
+    val regimeLabel = when (data.regime?.mode) {
+        "LOW_VOL_UP" -> "저변동 상승"
+        "HIGH_VOL_UP" -> "고변동 상승"
+        "LOW_VOL_FLAT" -> "저변동 횡보"
+        "HIGH_VOL_DOWN" -> "고변동 하락"
+        else -> "분석중"
+    }
+    val tempLabel = data.marketTemperature?.let { temp ->
+        val label = when (temp.label) {
+            null -> ""
+            else -> temp.label
+        }
+        val score = temp.score ?: 5
+        "$label($score/10)"
+    } ?: ""
+
+    val dashboardSummary = buildString {
+        append(if (gateOn) "게이트 ON" else "게이트 OFF")
+        append(" · $regimeLabel")
+        if (tempLabel.isNotBlank()) append(" · $tempLabel")
+    }
+    val statusMessage = listOfNotNull(
+        dashboardSummary,
+        "진입 $readyCount · 대기 $waitingCount" +
+            (if (targetHitCount > 0) " · 목표 $targetHitCount" else "") +
+            (if (invalidCount > 0) " · 무효 $invalidCount" else ""),
+    ).joinToString(" | ")
+
+    // 단타2: 카드 UI에 확장 정보 포함
+    val uiItems = rankedDayItems.map { ranked ->
+        val item = ranked.item
+        val tags = ranked.tags
+        val fallbackTheme = item.themeId?.let { "테마 ${it + 1}" }
+        val tagLine = when {
+            tags.isNotEmpty() -> "테마: " + tags.take(3).joinToString(" · ")
+            !fallbackTheme.isNullOrBlank() -> "테마: $fallbackTheme"
+            else -> null
+        }
+
+        // 단타2 확장: 상태 태그 + 진입 거리 + 예상R
+        val actionLabel = ranked.action.label
+        val borderColor = when {
+            actionLabel.startsWith("진입 가능") || actionLabel.startsWith("조건부 진입") -> "#0EBE93"
+            actionLabel.startsWith("진입 대기") || actionLabel.startsWith("조건부 대기") -> "#F59E0B"
+            actionLabel.startsWith("목표 도달") -> "#3B82F6"
+            else -> "#94A3B8"
+        }
+
+        val distPct = item.distanceToEntryPct
+        val expR = item.expectedR
+        // 실시간 거리 계산 (시세가 있으면 실시간, 없으면 서버 제공 값 사용)
+        val realtimeDistPct = if (ranked.quote != null && ranked.quote.price > 0.0 && (item.triggerBuy ?: 0.0) > 0.0) {
+            ((item.triggerBuy!! - ranked.quote.price) / ranked.quote.price * 100.0)
+        } else {
+            distPct
+        }
+        val distLabel = realtimeDistPct?.let { "진입까지 ${"%+.1f".format(it)}%" }
+        val rLabel = expR?.let { "R ${"%,.1f".format(it)}" }
+        val extraInfo = listOfNotNull(distLabel, rLabel, actionLabel).joinToString(" · ")
+
+        CommonReportItemUi(
+            ticker = item.ticker,
+            name = item.name,
+            market = item.market,
+            title = "${item.name} (${item.ticker})",
+            quote = ranked.quote,
+            miniPoints = miniCharts[item.ticker],
+            metrics = listOf(
+                MetricUi("진입", item.triggerBuy ?: 0.0),
+                MetricUi("목표", item.target1 ?: 0.0),
+                MetricUi("손절", item.stopLoss ?: 0.0),
+            ),
+            extraLines = listOfNotNull(tagLine, extraInfo),
+            thesis = item.thesis,
+            sortPrice = ranked.quote?.price,
+            sortChangePct = ranked.quote?.chgPct,
+            sortName = item.name,
+            sortAiSignal = ranked.aiSignalScore,
+            badgeLabel = "단타2",
+            displayReturnPct = ranked.quote?.chgPct,
+            eventTags = tags.take(5),
+            statusTag = actionLabel,
+        )
+    }
+
+    CommonReportList(
+        source = source,
+        statusMessage = statusMessage,
+        updatedAt = updatedAt ?: data.generatedAt,
+        header = when {
+            !gateOn -> "단타2 · 관찰 모드"
+            topItems.isNotEmpty() -> "단타2 · 추천 모드"
+            else -> "단타2 · 관찰 모드"
+        },
+        glossaryDialogTitle = "단타2 용어 설명집",
+        glossaryItems = listOf(
+            GlossaryItem("진입", "트리거 매수가 — 이 가격 이상 도달 시 매수 신호"),
+            GlossaryItem("목표", "목표 매도가 — 수익 실현 기준"),
+            GlossaryItem("손절", "손절가 — 하락 시 손실 제한 기준"),
+            GlossaryItem("R값", "리스크 대비 수익 배수. R 2.0 = 손절 위험의 2배 수익"),
+            GlossaryItem("진입 거리", "현재가에서 진입가까지 남은 거리(%). +면 아직 미도달"),
+            GlossaryItem("게이트", "시장 전체 단타 수익성 지표. ON=적극 매매, OFF=보수 관망"),
+            GlossaryItem("시장 체제", "변동성+방향 기반 시장 분류 (상승/하락/횡보)"),
+            GlossaryItem("시장 온도", "1~10 스케일. 높을수록 과열, 낮을수록 공포"),
+        ),
+        items = uiItems,
+        emptyText = if (gateOn) "추천 종목이 없습니다." else "관찰 종목이 없습니다.",
+        initialDisplayCount = daytradeDisplayCount,
+        refreshToken = refreshToken,
+        refreshLoading = refreshLoading,
+        onRefresh = onRefresh,
+        snackbarHostState = snackbarHostState,
+        receivedCount = dayItems.size,
+        query = query,
+        onQueryChange = { query = it },
+        onItemClick = { item -> onOpenChart(item.ticker.orEmpty(), item.name.orEmpty()) },
+        showRiskRules = true,
+        riskRules = data.hardRules.orEmpty(),
+        selectedSortId = sortId,
+        onSortChange = { sortId = it },
+        favoriteTickers = favoriteTickers,
+        onToggleFavorite = onToggleFavorite,
+        filtersContent = {
+            val sortOptions = listOf(
+                com.example.stock.ui.common.SelectOptionUi(SortOptions.DEFAULT, "기본"),
+                com.example.stock.ui.common.SelectOptionUi(SortOptions.PRICE_ASC, "가격↑"),
+                com.example.stock.ui.common.SelectOptionUi(SortOptions.PRICE_DESC, "가격↓"),
+                com.example.stock.ui.common.SelectOptionUi(SortOptions.CHANGE_ASC, "등락↑"),
+                com.example.stock.ui.common.SelectOptionUi(SortOptions.CHANGE_DESC, "등락↓"),
+                com.example.stock.ui.common.SelectOptionUi(SortOptions.NAME_ASC, "이름↑"),
+                com.example.stock.ui.common.SelectOptionUi(SortOptions.NAME_DESC, "이름↓"),
+                com.example.stock.ui.common.SelectOptionUi(SortOptions.AI_STRONG, "강함"),
+                com.example.stock.ui.common.SelectOptionUi(SortOptions.AI_BUY, "매수"),
+                com.example.stock.ui.common.SelectOptionUi(SortOptions.AI_WATCH, "관망"),
+                com.example.stock.ui.common.SelectOptionUi(SortOptions.AI_CAUTION, "주의"),
+                com.example.stock.ui.common.SelectOptionUi(SortOptions.AI_AVOID, "회피"),
+            )
+            com.example.stock.ui.common.CommonSortThemeBar(
+                sortOptions = sortOptions,
+                selectedSortId = sortId,
+                onSortChange = { sortId = it },
+                themeOptions = if (themeCounts.isNotEmpty()) themeOptions else null,
+                selectedThemeId = selectedThemeTag,
+                onThemeChange = { selectedThemeTag = it },
+            )
+        },
+        modifier = modifier,
+    )
+}

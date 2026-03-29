@@ -138,6 +138,8 @@ data class DaytradeTopItemDto(
     @SerialName("target_1") val target1: Double? = 0.0,
     @SerialName("stop_loss") val stopLoss: Double? = 0.0,
     val thesis: String? = "",
+    @SerialName("distance_to_entry_pct") val distanceToEntryPct: Double? = null,
+    @SerialName("expected_r") val expectedR: Double? = null,
 )
 
 @Serializable

@@ -964,6 +964,11 @@ def generate_premarket(
                 target = entry + t
             if not (stop < entry < target):
                 continue
+            # 단타2 확장 필드: distance_to_entry_pct, expected_r
+            _dist_pct = round(((entry - base_ref) / base_ref) * 100.0, 2) if base_ref > 0 else None
+            _risk = entry - stop
+            _exp_r = round((target - entry) / _risk, 2) if _risk > 0 else None
+
             out.append(
                 {
                     "ticker": r["code"],
@@ -973,6 +978,8 @@ def generate_premarket(
                     "trigger_buy": entry,
                     "target_1": target,
                     "stop_loss": stop,
+                    "distance_to_entry_pct": _dist_pct,
+                    "expected_r": _exp_r,
                     "thesis": (
                         f"{str(r.get('thesis') or '점수 상위 + 테마 분산')} · ATR적응 레벨"
                         if algo_version == "V2"

@@ -29,6 +29,9 @@ class DaytradeTopItem(BaseModel):
     target_1: float
     stop_loss: float
     thesis: str
+    # 단타2 확장 필드 (optional — 기존 호환성 유지)
+    distance_to_entry_pct: float | None = None
+    expected_r: float | None = None
 
 
 class BuyZone(BaseModel):
