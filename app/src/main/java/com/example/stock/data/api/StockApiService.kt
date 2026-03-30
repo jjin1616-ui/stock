@@ -415,4 +415,26 @@ interface StockApiService {
     suspend fun getNewsCluster(
         @Path("cluster_id") clusterId: Int,
     ): NewsClusterResponseDto
+
+    // 단타2 (AutoTrade2) API
+    @GET("autotrade2/settings")
+    suspend fun getAutoTrade2Settings(): AutoTrade2SettingsResponseDto
+
+    @POST("autotrade2/settings")
+    suspend fun updateAutoTrade2Settings(@Body payload: AutoTrade2SettingsDto): AutoTrade2SettingsResponseDto
+
+    @POST("autotrade2/settings/preset/{preset_name}")
+    suspend fun applyAutoTrade2Preset(@Path("preset_name") presetName: String): AutoTrade2SettingsResponseDto
+
+    @POST("autotrade2/run")
+    suspend fun runAutoTrade2(@Body payload: AutoTrade2RunRequestDto): AutoTrade2RunResponseDto
+
+    @GET("autotrade2/orders")
+    suspend fun getAutoTrade2Orders(
+        @Query("limit") limit: Int = 50,
+        @Query("status") status: String? = null,
+    ): AutoTrade2OrdersResponseDto
+
+    @GET("autotrade2/gate-history")
+    suspend fun getAutoTrade2GateHistory(@Query("days") days: Int = 30): AutoTrade2GateHistoryResponseDto
 }

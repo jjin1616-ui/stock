@@ -64,6 +64,12 @@ import com.example.stock.data.api.AutoTradeOrdersResponseDto
 import com.example.stock.data.api.AutoTradePerformanceResponseDto
 import com.example.stock.data.api.AutoTradeAccountSnapshotResponseDto
 import com.example.stock.data.api.AutoTradeBootstrapResponseDto
+import com.example.stock.data.api.AutoTrade2SettingsDto
+import com.example.stock.data.api.AutoTrade2SettingsResponseDto
+import com.example.stock.data.api.AutoTrade2RunRequestDto
+import com.example.stock.data.api.AutoTrade2RunResponseDto
+import com.example.stock.data.api.AutoTrade2OrdersResponseDto
+import com.example.stock.data.api.AutoTrade2GateHistoryResponseDto
 import com.example.stock.data.api.StockSearchResponseDto
 import com.example.stock.db.AppDatabase
 import com.example.stock.db.AlertCacheEntity
@@ -877,4 +883,36 @@ class StockRepository(
     fun saveLastAdvancedSection(section: String) = settingsStore.saveLastAdvancedSection(section)
     fun shouldShowBottomTabDragGuide(token: Int): Boolean = settingsStore.shouldShowBottomTabDragGuide(token)
     fun markBottomTabDragGuideSeen(token: Int) = settingsStore.markBottomTabDragGuideSeen(token)
+
+    // 단타2 (AutoTrade2) —————————————————————————————————————————
+
+    suspend fun getAutoTrade2Settings(): Result<AutoTrade2SettingsResponseDto> = suspendRunCatching {
+        val s = settingsStore.get()
+        NetworkModule.slowApi(s.baseUrl).getAutoTrade2Settings()
+    }
+
+    suspend fun updateAutoTrade2Settings(payload: AutoTrade2SettingsDto): Result<AutoTrade2SettingsResponseDto> = suspendRunCatching {
+        val s = settingsStore.get()
+        NetworkModule.api(s.baseUrl).updateAutoTrade2Settings(payload)
+    }
+
+    suspend fun applyAutoTrade2Preset(presetName: String): Result<AutoTrade2SettingsResponseDto> = suspendRunCatching {
+        val s = settingsStore.get()
+        NetworkModule.api(s.baseUrl).applyAutoTrade2Preset(presetName)
+    }
+
+    suspend fun runAutoTrade2(payload: AutoTrade2RunRequestDto): Result<AutoTrade2RunResponseDto> = suspendRunCatching {
+        val s = settingsStore.get()
+        NetworkModule.slowApi(s.baseUrl).runAutoTrade2(payload)
+    }
+
+    suspend fun getAutoTrade2Orders(limit: Int = 50, status: String? = null): Result<AutoTrade2OrdersResponseDto> = suspendRunCatching {
+        val s = settingsStore.get()
+        NetworkModule.api(s.baseUrl).getAutoTrade2Orders(limit = limit, status = status)
+    }
+
+    suspend fun getAutoTrade2GateHistory(days: Int = 30): Result<AutoTrade2GateHistoryResponseDto> = suspendRunCatching {
+        val s = settingsStore.get()
+        NetworkModule.api(s.baseUrl).getAutoTrade2GateHistory(days = days)
+    }
 }

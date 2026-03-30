@@ -27,6 +27,7 @@ import com.example.stock.ServiceLocator
 import com.example.stock.ui.common.TossBottomBar
 import com.example.stock.ui.screens.AlertsScreen
 import com.example.stock.ui.screens.AutoTradeScreen
+import com.example.stock.ui.screens.AutoTrade2Screen
 import com.example.stock.ui.screens.HomeScreen
 import com.example.stock.ui.screens.HoldingsScreen
 import com.example.stock.ui.screens.FavoritesScreen
@@ -63,6 +64,7 @@ enum class AppTab(val route: String, val label: String, val iconRes: Int) {
     PREMARKET2("premarket2", "단타2", R.drawable.ic_tab_lightning),
     SUPPLY("supply", "수급", R.drawable.ic_tab_supply),
     AUTOTRADE("autotrade", "자동", R.drawable.ic_tab_eod),
+    AUTOTRADE2("autotrade2", "단타2", R.drawable.ic_tab_eod),
     HOLDINGS("holdings", "보유", R.drawable.ic_tab_holdings),
     MOVERS("movers", "급등", R.drawable.ic_tab_chart),
     US("us", "미장", R.drawable.ic_tab_us),
@@ -129,6 +131,7 @@ private fun isTabAllowed(tab: AppTab, access: TabAccessState): Boolean = when (t
     AppTab.PREMARKET2 -> access.daytradeAllowed
     AppTab.SUPPLY -> access.supplyAllowed
     AppTab.AUTOTRADE -> access.autotradeAllowed
+    AppTab.AUTOTRADE2 -> access.autotradeAllowed
     AppTab.HOLDINGS -> access.holdingsAllowed
     AppTab.MOVERS -> access.moversAllowed
     AppTab.US -> access.usAllowed
@@ -241,7 +244,15 @@ fun AppNavigation(startRoute: String? = null, modifier: Modifier = Modifier) {
             modifier = modifier.padding(inner),
         ) {
             composable(AppTab.HOME.route) {
-                HomeScreen()
+                HomeScreen(
+                    onNavigateToNews = {
+                        nav.navigate(AppTab.NEWS.route) {
+                            popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                )
             }
             composable(AppTab.PREMARKET.route) {
                 if (tabAccess.daytradeAllowed) {
@@ -277,6 +288,13 @@ fun AppNavigation(startRoute: String? = null, modifier: Modifier = Modifier) {
                     )
                 } else {
                     MenuBlockedScreen(tabLabel = AppTab.AUTOTRADE.label)
+                }
+            }
+            composable(AppTab.AUTOTRADE2.route) {
+                if (tabAccess.autotradeAllowed) {
+                    AutoTrade2Screen()
+                } else {
+                    MenuBlockedScreen(tabLabel = AppTab.AUTOTRADE2.label)
                 }
             }
             composable(AppTab.HOLDINGS.route) {

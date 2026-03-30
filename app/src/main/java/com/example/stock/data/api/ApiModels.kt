@@ -1408,3 +1408,187 @@ data class NewsArticlesResponseDto(
     val meta: NewsMetaDto? = NewsMetaDto(),
     val articles: List<NewsArticleItemDto>? = emptyList(),
 )
+
+// ── Home2 전용 스텁 DTO (Phase 1에서 서버 연동 시 필드 확장 예정) ──
+
+@Serializable
+data class TradeFeedSummaryDto(
+    @SerialName("total_count") val totalCount: Int? = 0,
+    @SerialName("realized_pnl") val realizedPnl: Double? = 0.0,
+    @SerialName("buy_count") val buyCount: Int? = 0,
+    @SerialName("sell_count") val sellCount: Int? = 0,
+)
+
+@Serializable
+data class SectorItemDto(
+    val name: String? = null,
+    val changePct: Double? = 0.0,
+    val volume: Int? = 0,
+)
+
+@Serializable
+data class SectorResponseDto(
+    val items: List<SectorItemDto>? = emptyList(),
+    val asOf: String? = null,
+    val source: String? = null,
+)
+
+@Serializable
+data class VolumeSurgeItemDto(
+    val ticker: String? = null,
+    val name: String? = null,
+    val volumeRatio: Double? = 0.0,
+    val price: Double? = 0.0,
+    val changePct: Double? = 0.0,
+)
+
+@Serializable
+data class VolumeSurgeResponseDto(
+    val items: List<VolumeSurgeItemDto>? = emptyList(),
+    val asOf: String? = null,
+)
+
+@Serializable
+data class WeekExtremeItemDto(
+    val ticker: String? = null,
+    val name: String? = null,
+    val price: Double? = 0.0,
+    val prevExtreme: Double? = 0.0,
+)
+
+@Serializable
+data class WeekExtremeResponseDto(
+    val highs: List<WeekExtremeItemDto>? = emptyList(),
+    val lows: List<WeekExtremeItemDto>? = emptyList(),
+    val asOf: String? = null,
+)
+
+@Serializable
+data class DividendItemDto(
+    val ticker: String? = null,
+    val name: String? = null,
+    val exDate: String? = null,
+    val dividendPerShare: Double? = 0.0,
+    val dividendYield: Double? = 0.0,
+)
+
+@Serializable
+data class DividendResponseDto(
+    val items: List<DividendItemDto>? = emptyList(),
+    val asOf: String? = null,
+)
+
+// ---------------------------------------------------------------------------
+// 단타2 (AutoTrade2) DTOs
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class AutoTrade2SettingsDto(
+    val enabled: Boolean? = false,
+    val environment: String? = "paper",
+    @SerialName("include_daytrade") val includeDaytrade: Boolean? = true,
+    @SerialName("include_movers") val includeMovers: Boolean? = true,
+    @SerialName("include_supply") val includeSupply: Boolean? = true,
+    @SerialName("include_papers") val includePapers: Boolean? = true,
+    @SerialName("include_longterm") val includeLongterm: Boolean? = true,
+    @SerialName("include_favorites") val includeFavorites: Boolean? = true,
+    @SerialName("order_budget_krw") val orderBudgetKrw: Double? = 200000.0,
+    @SerialName("max_orders_per_run") val maxOrdersPerRun: Int? = 5,
+    @SerialName("max_daily_loss_pct") val maxDailyLossPct: Double? = 3.0,
+    @SerialName("seed_krw") val seedKrw: Double? = 10000000.0,
+    @SerialName("take_profit_pct") val takeProfitPct: Double? = 7.0,
+    @SerialName("stop_loss_pct") val stopLossPct: Double? = 5.0,
+    @SerialName("stoploss_reentry_policy") val stoplossReentryPolicy: String? = "cooldown",
+    @SerialName("stoploss_reentry_cooldown_min") val stoplossReentryCooldownMin: Int? = 30,
+    @SerialName("takeprofit_reentry_policy") val takeprofitReentryPolicy: String? = "cooldown",
+    @SerialName("takeprofit_reentry_cooldown_min") val takeprofitReentryCooldownMin: Int? = 30,
+    @SerialName("allow_market_order") val allowMarketOrder: Boolean? = false,
+    @SerialName("offhours_reservation_enabled") val offhoursReservationEnabled: Boolean? = true,
+    @SerialName("offhours_reservation_mode") val offhoursReservationMode: String? = "auto",
+    @SerialName("offhours_confirm_timeout_min") val offhoursConfirmTimeoutMin: Int? = 3,
+    @SerialName("offhours_confirm_timeout_action") val offhoursConfirmTimeoutAction: String? = "cancel",
+    @SerialName("daily_loss_throttle_pct") val dailyLossThrottlePct: Double? = 3.0,
+    @SerialName("daily_loss_block_pct") val dailyLossBlockPct: Double? = 5.0,
+    @SerialName("daily_loss_throttle_ratio") val dailyLossThrottleRatio: Double? = 0.5,
+    @SerialName("avg_fallback_max_count") val avgFallbackMaxCount: Int? = 3,
+    @SerialName("avg_fallback_force_exit") val avgFallbackForceExit: Boolean? = true,
+    @SerialName("partial_tp_enabled") val partialTpEnabled: Boolean? = true,
+    @SerialName("partial_tp_ratio") val partialTpRatio: Double? = 0.5,
+    @SerialName("partial_tp_pct") val partialTpPct: Double? = 5.0,
+    @SerialName("final_tp_pct") val finalTpPct: Double? = 7.0,
+    @SerialName("preset_name") val presetName: String? = "balanced",
+)
+
+@Serializable
+data class AutoTrade2SettingsResponseDto(
+    val settings: AutoTrade2SettingsDto? = AutoTrade2SettingsDto(),
+    val presets: Map<String, Map<String, String>>? = emptyMap(),
+    @SerialName("updated_at") val updatedAt: String? = "",
+)
+
+@Serializable
+data class AutoTrade2OrderItemDto(
+    val id: Int? = 0,
+    @SerialName("run_id") val runId: String? = "",
+    @SerialName("source_tab") val sourceTab: String? = "",
+    val environment: String? = null,
+    val ticker: String? = "",
+    val name: String? = null,
+    val side: String? = "BUY",
+    val qty: Int? = 0,
+    @SerialName("requested_price") val requestedPrice: Double? = 0.0,
+    @SerialName("filled_price") val filledPrice: Double? = null,
+    @SerialName("current_price") val currentPrice: Double? = null,
+    @SerialName("pnl_pct") val pnlPct: Double? = null,
+    val status: String? = "",
+    @SerialName("broker_order_no") val brokerOrderNo: String? = null,
+    val reason: String? = null,
+    @SerialName("reason_label") val reasonLabel: String? = null,
+    val suggestion: String? = null,
+    @SerialName("requested_at") val requestedAt: String? = "",
+    @SerialName("filled_at") val filledAt: String? = null,
+)
+
+@Serializable
+data class AutoTrade2OrdersResponseDto(
+    val total: Int? = 0,
+    val items: List<AutoTrade2OrderItemDto>? = emptyList(),
+)
+
+@Serializable
+data class AutoTrade2RunRequestDto(
+    @SerialName("dry_run") val dryRun: Boolean? = false,
+    val limit: Int? = null,
+    @SerialName("execution_mode") val executionMode: String? = "all",
+    @SerialName("candidate_tickers") val candidateTickers: List<String>? = null,
+)
+
+@Serializable
+data class AutoTrade2RunResponseDto(
+    @SerialName("run_id") val runId: String? = "",
+    val message: String? = "",
+    @SerialName("requested_count") val requestedCount: Int? = 0,
+    @SerialName("submitted_count") val submittedCount: Int? = 0,
+    @SerialName("filled_count") val filledCount: Int? = 0,
+    @SerialName("skipped_count") val skippedCount: Int? = 0,
+    val throttled: Boolean? = false,
+    val orders: List<AutoTrade2OrderItemDto>? = emptyList(),
+    val metric: AutoTradePerformanceItemDto? = null,
+)
+
+@Serializable
+data class AutoTrade2GateHistoryItemDto(
+    val ymd: String? = "",
+    @SerialName("gate_metric") val gateMetric: Double? = 0.0,
+    @SerialName("gate_threshold") val gateThreshold: Double? = 0.0,
+    @SerialName("gate_on") val gateOn: Boolean? = false,
+    val regime: String? = null,
+    @SerialName("dynamic_threshold") val dynamicThreshold: Double? = null,
+    @SerialName("daily_mean_r") val dailyMeanR: Double? = null,
+)
+
+@Serializable
+data class AutoTrade2GateHistoryResponseDto(
+    val count: Int? = 0,
+    val items: List<AutoTrade2GateHistoryItemDto>? = emptyList(),
+)

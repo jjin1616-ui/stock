@@ -43,6 +43,12 @@ import com.example.stock.data.api.AutoTradeOrderCancelResponseDto
 import com.example.stock.data.api.AutoTradePendingCancelResponseDto
 import com.example.stock.data.api.AutoTradeReentryBlocksResponseDto
 import com.example.stock.data.api.AutoTradeReentryReleaseResponseDto
+import com.example.stock.data.api.AutoTrade2SettingsDto
+import com.example.stock.data.api.AutoTrade2SettingsResponseDto
+import com.example.stock.data.api.AutoTrade2RunRequestDto
+import com.example.stock.data.api.AutoTrade2RunResponseDto
+import com.example.stock.data.api.AutoTrade2OrdersResponseDto
+import com.example.stock.data.api.AutoTrade2GateHistoryResponseDto
 import com.example.stock.data.api.StockSearchResponseDto
 import com.example.stock.data.repository.AppSettings
 import com.example.stock.data.repository.StockRepository
@@ -2763,6 +2769,73 @@ class Home2ViewModel(private val repository: StockRepository) : ViewModel() {
     }
 }
 
+class AutoTrade2ViewModel(private val repository: StockRepository) : ViewModel() {
+    val settingsState = mutableStateOf(UiState<AutoTrade2SettingsResponseDto>())
+    val ordersState = mutableStateOf(UiState<AutoTrade2OrdersResponseDto>())
+    val runState = mutableStateOf(UiState<AutoTrade2RunResponseDto>())
+    val gateHistoryState = mutableStateOf(UiState<AutoTrade2GateHistoryResponseDto>())
+
+    fun loadAll() {
+        loadSettings()
+        loadOrders()
+        loadGateHistory()
+    }
+
+    fun loadSettings() {
+        settingsState.value = settingsState.value.copy(loading = true, error = null)
+        viewModelScope.launch {
+            retryNetworkResult { repository.getAutoTrade2Settings() }
+                .onSuccess { settingsState.value = UiState(data = it, loading = false) }
+                .onFailure { settingsState.value = settingsState.value.copy(loading = false, error = it.toFriendlyNetworkMessage("설정을 불러오지 못했습니다")) }
+        }
+    }
+
+    fun updateSettings(payload: AutoTrade2SettingsDto) {
+        settingsState.value = settingsState.value.copy(loading = true, error = null)
+        viewModelScope.launch {
+            repository.updateAutoTrade2Settings(payload)
+                .onSuccess { settingsState.value = UiState(data = it, loading = false) }
+                .onFailure { settingsState.value = settingsState.value.copy(loading = false, error = it.toFriendlyNetworkMessage("설정 저장에 실패했습니다")) }
+        }
+    }
+
+    fun applyPreset(presetName: String) {
+        settingsState.value = settingsState.value.copy(loading = true, error = null)
+        viewModelScope.launch {
+            repository.applyAutoTrade2Preset(presetName)
+                .onSuccess { settingsState.value = UiState(data = it, loading = false) }
+                .onFailure { settingsState.value = settingsState.value.copy(loading = false, error = it.toFriendlyNetworkMessage("프리셋 적용에 실패했습니다")) }
+        }
+    }
+
+    fun runAutoTrade(dryRun: Boolean = false, executionMode: String = "all") {
+        runState.value = runState.value.copy(loading = true, error = null)
+        viewModelScope.launch {
+            repository.runAutoTrade2(AutoTrade2RunRequestDto(dryRun = dryRun, executionMode = executionMode))
+                .onSuccess { runState.value = UiState(data = it, loading = false) }
+                .onFailure { runState.value = runState.value.copy(loading = false, error = it.toFriendlyNetworkMessage("실행에 실패했습니다")) }
+        }
+    }
+
+    fun loadOrders(limit: Int = 50) {
+        ordersState.value = ordersState.value.copy(loading = true, error = null)
+        viewModelScope.launch {
+            retryNetworkResult { repository.getAutoTrade2Orders(limit = limit) }
+                .onSuccess { ordersState.value = UiState(data = it, loading = false) }
+                .onFailure { ordersState.value = ordersState.value.copy(loading = false, error = it.toFriendlyNetworkMessage("주문 내역을 불러오지 못했습니다")) }
+        }
+    }
+
+    fun loadGateHistory(days: Int = 30) {
+        gateHistoryState.value = gateHistoryState.value.copy(loading = true, error = null)
+        viewModelScope.launch {
+            retryNetworkResult { repository.getAutoTrade2GateHistory(days = days) }
+                .onSuccess { gateHistoryState.value = UiState(data = it, loading = false) }
+                .onFailure { gateHistoryState.value = gateHistoryState.value.copy(loading = false, error = it.toFriendlyNetworkMessage("Gate 이력을 불러오지 못했습니다")) }
+        }
+    }
+}
+
 class AppViewModelFactory(private val repository: StockRepository) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -2780,6 +2853,7 @@ class AppViewModelFactory(private val repository: StockRepository) : ViewModelPr
             modelClass.isAssignableFrom(NewsViewModel::class.java) -> NewsViewModel(repository) as T
             modelClass.isAssignableFrom(SettingsViewModel::class.java) -> SettingsViewModel(repository) as T
             modelClass.isAssignableFrom(AutoTradeViewModel::class.java) -> AutoTradeViewModel(repository) as T
+            modelClass.isAssignableFrom(AutoTrade2ViewModel::class.java) -> AutoTrade2ViewModel(repository) as T
             modelClass.isAssignableFrom(HoldingsViewModel::class.java) -> HoldingsViewModel(repository) as T
             else -> throw IllegalArgumentException("Unknown ViewModel ${modelClass.name}")
         }
