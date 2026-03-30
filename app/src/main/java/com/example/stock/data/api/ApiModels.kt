@@ -1592,3 +1592,91 @@ data class AutoTrade2GateHistoryResponseDto(
     val count: Int? = 0,
     val items: List<AutoTrade2GateHistoryItemDto>? = emptyList(),
 )
+
+// ── Company Analysis ─────────────────────────
+
+@Serializable
+data class CompanyCardDto(
+    val ticker: String = "",
+    val name: String = "",
+    val market: String = "",
+    val sector: String? = null,
+    val healthScore: Double? = null,
+    val grade: String = "normal",
+    val revenue: Long? = null,
+    val debtRatio: Double? = null,
+    val revenueGrowth: Double? = null,
+    val aiSummary: String? = null,
+)
+
+@Serializable
+data class CompanyListResponseDto(
+    val companies: List<CompanyCardDto> = emptyList(),
+    val curation: CurationDto? = null,
+    val totalCount: Int = 0,
+    val page: Int = 1,
+    val totalPages: Int = 0,
+)
+
+@Serializable
+data class CurationDto(
+    val topCompanies: List<CompanyCardDto> = emptyList(),
+)
+
+@Serializable
+data class HealthScoreDto(
+    val total: Double? = null,
+    val profitability: Double? = null,
+    val stability: Double? = null,
+    val growth: Double? = null,
+    val efficiency: Double? = null,
+    val valuation: Double? = null,
+)
+
+@Serializable
+data class CompanyFinancialsDto(
+    val revenue: Long? = null,
+    val operatingProfit: Long? = null,
+    val netIncome: Long? = null,
+    val debtRatio: Double? = null,
+    val roe: Double? = null,
+    val currentRatio: Double? = null,
+    val revenueGrowth: Double? = null,
+)
+
+@Serializable
+data class AiAnalysisDto(
+    val summary: String? = null,
+    val positivePoints: List<String> = emptyList(),
+    val riskPoints: List<String> = emptyList(),
+    val healthComment: String? = null,
+)
+
+@Serializable
+data class ChartPointSimpleDto(
+    val period: String = "",
+    val value: Long? = null,
+)
+
+@Serializable
+data class CompanyChartsDto(
+    val revenueHistory: List<ChartPointSimpleDto> = emptyList(),
+    val profitHistory: List<ChartPointSimpleDto> = emptyList(),
+)
+
+@Serializable
+data class BasicInfoDto(
+    val ticker: String = "",
+    val name: String = "",
+    val market: String = "",
+    val sector: String? = null,
+)
+
+@Serializable
+data class CompanyDetailDto(
+    val basicInfo: BasicInfoDto = BasicInfoDto(),
+    val financials: CompanyFinancialsDto = CompanyFinancialsDto(),
+    val healthScore: HealthScoreDto = HealthScoreDto(),
+    val aiAnalysis: AiAnalysisDto = AiAnalysisDto(),
+    val charts: CompanyChartsDto = CompanyChartsDto(),
+)

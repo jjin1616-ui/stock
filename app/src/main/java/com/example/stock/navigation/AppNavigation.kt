@@ -1,5 +1,6 @@
 package com.example.stock.navigation
 
+import android.net.Uri
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.WindowInsets
@@ -39,6 +40,9 @@ import com.example.stock.ui.screens.PreMarket2Screen
 import com.example.stock.ui.screens.PreMarketScreen
 import com.example.stock.ui.screens.SettingsScreen
 import com.example.stock.ui.screens.SupplyScreen
+import com.example.stock.ui.screens.CompanyAnalysisScreen
+import com.example.stock.ui.screens.CompanyDetailScreen
+import com.example.stock.ui.screens.StockDetailActivity
 import com.example.stock.ui.screens.UsInsiderScreen
 
 private const val BOTTOM_TAB_DRAG_GUIDE_TOKEN = 20260220
@@ -73,6 +77,7 @@ enum class AppTab(val route: String, val label: String, val iconRes: Int) {
     PAPERS("papers", "논문", R.drawable.ic_tab_report),
     EOD("eod", "관심", R.drawable.ic_tab_check),
     ALERTS("alerts", "알림", R.drawable.ic_tab_alert),
+    ANALYSIS("analysis", "기업분석", R.drawable.ic_tab_home),
     SETTINGS("settings", "설정", R.drawable.ic_tab_settings),
 }
 
@@ -140,6 +145,7 @@ private fun isTabAllowed(tab: AppTab, access: TabAccessState): Boolean = when (t
     AppTab.PAPERS -> access.papersAllowed
     AppTab.EOD -> access.eodAllowed
     AppTab.ALERTS -> access.alertsAllowed
+    AppTab.ANALYSIS -> true
     AppTab.SETTINGS -> true
 }
 
@@ -359,6 +365,24 @@ fun AppNavigation(startRoute: String? = null, modifier: Modifier = Modifier) {
                 } else {
                     MenuBlockedScreen(tabLabel = AppTab.ALERTS.label)
                 }
+            }
+            composable(AppTab.ANALYSIS.route) {
+                CompanyAnalysisScreen(
+                    onCompanyClick = { ticker, name ->
+                        nav.navigate("company_detail/$ticker/${Uri.encode(name)}")
+                    },
+                )
+            }
+            composable("company_detail/{ticker}/{name}") { backStack ->
+                val ticker = backStack.arguments?.getString("ticker") ?: return@composable
+                val cName = Uri.decode(backStack.arguments?.getString("name") ?: "")
+                CompanyDetailScreen(
+                    ticker = ticker,
+                    name = cName,
+                    onBack = { nav.popBackStack() },
+                    onBuy = { t -> StockDetailActivity.open(context, t, cName, "analysis", emptyList()) },
+                    onAddWatchlist = { /* Phase 2 */ },
+                )
             }
             composable(AppTab.SETTINGS.route) {
                 SettingsScreen(

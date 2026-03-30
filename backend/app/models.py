@@ -610,3 +610,58 @@ class AutoTrade2SymbolRule(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CompanyFinancial(Base):
+    """Cached DART financial statement data per company per quarter."""
+    __tablename__ = "company_financials"
+    __table_args__ = (
+        UniqueConstraint("corp_code", "bsns_year", "reprt_code", name="uq_cf_corp_year_reprt"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    corp_code: Mapped[str] = mapped_column(String(8), index=True, nullable=False)
+    ticker: Mapped[str] = mapped_column(String(6), index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    market: Mapped[str] = mapped_column(String(10), nullable=False)
+    sector: Mapped[str] = mapped_column(String(100), nullable=True)
+    bsns_year: Mapped[str] = mapped_column(String(4), nullable=False)
+    reprt_code: Mapped[str] = mapped_column(String(5), nullable=False)
+    revenue: Mapped[int] = mapped_column(Integer, nullable=True)
+    operating_profit: Mapped[int] = mapped_column(Integer, nullable=True)
+    net_income: Mapped[int] = mapped_column(Integer, nullable=True)
+    total_assets: Mapped[int] = mapped_column(Integer, nullable=True)
+    total_liabilities: Mapped[int] = mapped_column(Integer, nullable=True)
+    total_equity: Mapped[int] = mapped_column(Integer, nullable=True)
+    current_assets: Mapped[int] = mapped_column(Integer, nullable=True)
+    current_liabilities: Mapped[int] = mapped_column(Integer, nullable=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CompanyHealthScore(Base):
+    """Computed health scores, refreshed after each DART quarterly release."""
+    __tablename__ = "company_health_scores"
+    __table_args__ = (
+        UniqueConstraint("ticker", "computed_date", name="uq_chs_ticker_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticker: Mapped[str] = mapped_column(String(6), index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    market: Mapped[str] = mapped_column(String(10), nullable=False)
+    sector: Mapped[str] = mapped_column(String(100), nullable=True)
+    total_score: Mapped[float] = mapped_column(Float, nullable=False)
+    profitability: Mapped[float] = mapped_column(Float, nullable=True)
+    stability: Mapped[float] = mapped_column(Float, nullable=True)
+    growth: Mapped[float] = mapped_column(Float, nullable=True)
+    efficiency: Mapped[float] = mapped_column(Float, nullable=True)
+    valuation: Mapped[float] = mapped_column(Float, nullable=True)
+    grade: Mapped[str] = mapped_column(String(10), nullable=False)
+    ai_summary: Mapped[str] = mapped_column(Text, nullable=True)
+    ai_positive_points: Mapped[str] = mapped_column(Text, nullable=True)
+    ai_risk_points: Mapped[str] = mapped_column(Text, nullable=True)
+    ai_health_comment: Mapped[str] = mapped_column(Text, nullable=True)
+    revenue: Mapped[int] = mapped_column(Integer, nullable=True)
+    debt_ratio: Mapped[float] = mapped_column(Float, nullable=True)
+    revenue_growth: Mapped[float] = mapped_column(Float, nullable=True)
+    computed_date: Mapped[date] = mapped_column(Date, nullable=False)

@@ -28,6 +28,8 @@ from app.models import (
     AutoTradeReservation,
     AutoTradeSetting,
     AutoTradeSymbolRule,
+    CompanyFinancial,
+    CompanyHealthScore,
     Device,
     EvalMonthly,
     Report,
@@ -9001,3 +9003,161 @@ def get_autotrade2_presets(ctx=Depends(get_token_context)):
     """P1-3: 프리셋 목록 조회."""
     require_active_user(ctx)
     return {"presets": AUTOTRADE2_PRESETS}
+
+
+# ── Company Analysis ────────────────────────────────────────────────
+
+
+@app.get("/analysis/companies")
+def get_analysis_companies(
+    grade: str | None = Query(None, regex="^(good|normal|danger)$"),
+    market: str | None = Query(None),
+    sector: str | None = Query(None),
+    sort_by: str = Query("healthScore", regex="^(healthScore|revenue|growthRate)$"),
+    sort_order: str = Query("desc", regex="^(asc|desc)$"),
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+):
+    """기업분석 목록 — 건강점수 기반 종목 리스트 + 큐레이션."""
+    with session_scope() as db:
+        q = db.query(CompanyHealthScore).filter(CompanyHealthScore.total_score.isnot(None))
+
+        if grade:
+            q = q.filter(CompanyHealthScore.grade == grade)
+        if market:
+            q = q.filter(CompanyHealthScore.market == market)
+        if sector:
+            q = q.filter(CompanyHealthScore.sector == sector)
+
+        total_count = q.count()
+
+        # Sorting
+        sort_col = {
+            "healthScore": CompanyHealthScore.total_score,
+            "revenue": CompanyHealthScore.revenue,
+            "growthRate": CompanyHealthScore.revenue_growth,
+        }.get(sort_by, CompanyHealthScore.total_score)
+
+        if sort_order == "desc":
+            q = q.order_by(sort_col.desc())
+        else:
+            q = q.order_by(sort_col.asc())
+
+        companies = q.offset((page - 1) * size).limit(size).all()
+
+        # Curation: top 5 by health score
+        top5 = (
+            db.query(CompanyHealthScore)
+            .filter(CompanyHealthScore.total_score.isnot(None))
+            .order_by(CompanyHealthScore.total_score.desc())
+            .limit(5)
+            .all()
+        )
+
+        def to_card(row: CompanyHealthScore) -> dict:
+            return {
+                "ticker": row.ticker,
+                "name": row.name,
+                "market": row.market,
+                "sector": row.sector,
+                "healthScore": row.total_score,
+                "grade": row.grade,
+                "revenue": row.revenue,
+                "debtRatio": row.debt_ratio,
+                "revenueGrowth": row.revenue_growth,
+                "aiSummary": row.ai_summary,
+            }
+
+        return {
+            "companies": [to_card(c) for c in companies],
+            "curation": {"topCompanies": [to_card(c) for c in top5]},
+            "totalCount": total_count,
+            "page": page,
+            "totalPages": (total_count + size - 1) // size,
+        }
+
+
+@app.get("/analysis/companies/{ticker}")
+def get_analysis_company_detail(ticker: str):
+    """기업분석 상세 — 재무 + 건강점수 + AI 분석."""
+    with session_scope() as db:
+        score_row = (
+            db.query(CompanyHealthScore)
+            .filter(CompanyHealthScore.ticker == ticker)
+            .order_by(CompanyHealthScore.computed_date.desc())
+            .first()
+        )
+        if not score_row:
+            raise HTTPException(status_code=404, detail=f"No analysis data for {ticker}")
+
+        # Latest financial data
+        fin = (
+            db.query(CompanyFinancial)
+            .filter(CompanyFinancial.ticker == ticker)
+            .order_by(CompanyFinancial.bsns_year.desc(), CompanyFinancial.reprt_code.desc())
+            .first()
+        )
+
+        # Revenue history (latest 8 quarters, reversed to chronological)
+        fin_history = (
+            db.query(CompanyFinancial)
+            .filter(CompanyFinancial.ticker == ticker)
+            .order_by(CompanyFinancial.bsns_year.desc(), CompanyFinancial.reprt_code.desc())
+            .limit(8)
+            .all()
+        )[::-1]
+
+        positive = json.loads(score_row.ai_positive_points) if score_row.ai_positive_points else []
+        risks = json.loads(score_row.ai_risk_points) if score_row.ai_risk_points else []
+
+        reprt_map = {"11013": "1", "11012": "2", "11014": "3", "11011": "4"}
+
+        financials = {}
+        if fin:
+            equity = fin.total_equity or 0
+            cl = fin.current_liabilities
+            financials = {
+                "revenue": fin.revenue,
+                "operatingProfit": fin.operating_profit,
+                "netIncome": fin.net_income,
+                "debtRatio": round((fin.total_liabilities or 0) / equity * 100, 1) if equity else None,
+                "roe": round((fin.net_income or 0) / equity * 100, 1) if equity else None,
+                "currentRatio": round((fin.current_assets or 0) / cl * 100, 1) if cl and cl != 0 else None,
+                "revenueGrowth": score_row.revenue_growth,
+            }
+
+        return {
+            "basicInfo": {
+                "ticker": score_row.ticker,
+                "name": score_row.name,
+                "market": score_row.market,
+                "sector": score_row.sector,
+            },
+            "financials": financials,
+            "healthScore": {
+                "total": score_row.total_score,
+                "profitability": score_row.profitability,
+                "stability": score_row.stability,
+                "growth": score_row.growth,
+                "efficiency": score_row.efficiency,
+                "valuation": score_row.valuation,
+            },
+            "aiAnalysis": {
+                "summary": score_row.ai_summary,
+                "positivePoints": positive,
+                "riskPoints": risks,
+                "healthComment": score_row.ai_health_comment,
+            },
+            "charts": {
+                "revenueHistory": [
+                    {"period": f"{f.bsns_year}Q{reprt_map.get(f.reprt_code, '?')}", "value": f.revenue}
+                    for f in fin_history
+                    if f.revenue
+                ],
+                "profitHistory": [
+                    {"period": f"{f.bsns_year}Q{reprt_map.get(f.reprt_code, '?')}", "value": f.operating_profit}
+                    for f in fin_history
+                    if f.operating_profit
+                ],
+            },
+        }

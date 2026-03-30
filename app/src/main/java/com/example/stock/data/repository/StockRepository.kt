@@ -71,6 +71,8 @@ import com.example.stock.data.api.AutoTrade2RunResponseDto
 import com.example.stock.data.api.AutoTrade2OrdersResponseDto
 import com.example.stock.data.api.AutoTrade2GateHistoryResponseDto
 import com.example.stock.data.api.StockSearchResponseDto
+import com.example.stock.data.api.CompanyListResponseDto
+import com.example.stock.data.api.CompanyDetailDto
 import com.example.stock.db.AppDatabase
 import com.example.stock.db.AlertCacheEntity
 import com.example.stock.db.PremarketCacheEntity
@@ -914,5 +916,29 @@ class StockRepository(
     suspend fun getAutoTrade2GateHistory(days: Int = 30): Result<AutoTrade2GateHistoryResponseDto> = suspendRunCatching {
         val s = settingsStore.get()
         NetworkModule.api(s.baseUrl).getAutoTrade2GateHistory(days = days)
+    }
+
+    suspend fun getAnalysisCompanies(
+        grade: String? = null,
+        market: String? = null,
+        sector: String? = null,
+        sortBy: String = "healthScore",
+        sortOrder: String = "desc",
+        page: Int = 1,
+    ): Result<CompanyListResponseDto> = suspendRunCatching {
+        val s = settingsStore.get()
+        withTimeout(15_000L) {
+            NetworkModule.api(s.baseUrl).getAnalysisCompanies(
+                grade = grade, market = market, sector = sector,
+                sortBy = sortBy, sortOrder = sortOrder, page = page,
+            )
+        }
+    }
+
+    suspend fun getAnalysisCompanyDetail(ticker: String): Result<CompanyDetailDto> = suspendRunCatching {
+        val s = settingsStore.get()
+        withTimeout(15_000L) {
+            NetworkModule.api(s.baseUrl).getAnalysisCompanyDetail(ticker)
+        }
     }
 }

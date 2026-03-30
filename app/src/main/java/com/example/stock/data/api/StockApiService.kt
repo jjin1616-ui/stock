@@ -437,4 +437,22 @@ interface StockApiService {
 
     @GET("autotrade2/gate-history")
     suspend fun getAutoTrade2GateHistory(@Query("days") days: Int = 30): AutoTrade2GateHistoryResponseDto
+
+    // ── Company Analysis ─────────────────────────
+
+    @GET("analysis/companies")
+    suspend fun getAnalysisCompanies(
+        @Query("grade") grade: String? = null,
+        @Query("market") market: String? = null,
+        @Query("sector") sector: String? = null,
+        @Query("sort_by") sortBy: String = "healthScore",
+        @Query("sort_order") sortOrder: String = "desc",
+        @Query("page") page: Int = 1,
+        @Query("size") size: Int = 20,
+    ): CompanyListResponseDto
+
+    @GET("analysis/companies/{ticker}")
+    suspend fun getAnalysisCompanyDetail(
+        @Path("ticker") ticker: String,
+    ): CompanyDetailDto
 }

@@ -51,6 +51,8 @@ import com.example.stock.data.api.AutoTrade2OrdersResponseDto
 import com.example.stock.data.api.AutoTrade2GateHistoryResponseDto
 import com.example.stock.data.api.TradeFeedSummaryDto
 import com.example.stock.data.api.StockSearchResponseDto
+import com.example.stock.data.api.CompanyListResponseDto
+import com.example.stock.data.api.CompanyDetailDto
 import com.example.stock.data.repository.AppSettings
 import com.example.stock.data.repository.StockRepository
 import com.example.stock.data.repository.UiSource
@@ -2841,6 +2843,70 @@ class AutoTrade2ViewModel(private val repository: StockRepository) : ViewModel()
     }
 }
 
+class CompanyAnalysisViewModel(private val repository: StockRepository) : ViewModel() {
+    // --- List screen state ---
+    val listState = mutableStateOf(UiState<CompanyListResponseDto>(loading = true))
+    val selectedGrade = mutableStateOf<String?>(null)
+    val selectedMarket = mutableStateOf<String?>(null)
+    val selectedSector = mutableStateOf<String?>(null)
+    val sortBy = mutableStateOf("healthScore")
+    val currentPage = mutableStateOf(1)
+
+    // --- Detail screen state ---
+    val detailState = mutableStateOf(UiState<CompanyDetailDto>())
+
+    private var listJob: Job? = null
+    private var detailJob: Job? = null
+
+    fun loadCompanies(page: Int = 1) {
+        listJob?.cancel()
+        listJob = viewModelScope.launch {
+            listState.value = listState.value.copy(loading = true)
+            val result = repository.getAnalysisCompanies(
+                grade = selectedGrade.value,
+                market = selectedMarket.value,
+                sector = selectedSector.value,
+                sortBy = sortBy.value,
+                page = page,
+            )
+            result.onSuccess { data ->
+                listState.value = UiState(data = data, loading = false)
+                currentPage.value = page
+            }.onFailure { e ->
+                listState.value = UiState(error = e.message ?: "로드 실패", loading = false)
+            }
+        }
+    }
+
+    fun loadDetail(ticker: String) {
+        detailJob?.cancel()
+        detailJob = viewModelScope.launch {
+            detailState.value = UiState(loading = true)
+            val result = repository.getAnalysisCompanyDetail(ticker)
+            result.onSuccess { data ->
+                detailState.value = UiState(data = data, loading = false)
+            }.onFailure { e ->
+                detailState.value = UiState(error = e.message ?: "상세 로드 실패", loading = false)
+            }
+        }
+    }
+
+    fun setGradeFilter(grade: String?) {
+        selectedGrade.value = grade
+        loadCompanies()
+    }
+
+    fun setMarketFilter(market: String?) {
+        selectedMarket.value = market
+        loadCompanies()
+    }
+
+    fun setSortBy(sort: String) {
+        sortBy.value = sort
+        loadCompanies()
+    }
+}
+
 class AppViewModelFactory(private val repository: StockRepository) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -2860,6 +2926,7 @@ class AppViewModelFactory(private val repository: StockRepository) : ViewModelPr
             modelClass.isAssignableFrom(AutoTradeViewModel::class.java) -> AutoTradeViewModel(repository) as T
             modelClass.isAssignableFrom(AutoTrade2ViewModel::class.java) -> AutoTrade2ViewModel(repository) as T
             modelClass.isAssignableFrom(HoldingsViewModel::class.java) -> HoldingsViewModel(repository) as T
+            modelClass.isAssignableFrom(CompanyAnalysisViewModel::class.java) -> CompanyAnalysisViewModel(repository) as T
             else -> throw IllegalArgumentException("Unknown ViewModel ${modelClass.name}")
         }
     }
