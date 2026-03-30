@@ -33,11 +33,3 @@ jobs:
     with:
       branch: ${{ github.event.client_payload.branch || inputs.branch || 'main' }}
     secrets: inherit
-
-  apk-only:
-    name: APK만 빌드 및 배포
-    if: github.event.action == 'deploy-apk'
-    uses: ./.github/workflows/deploy-apk.yml
-    with:
-      branch: ${{ github.event.client_payload.branch || 'main' }}
-    secrets: inherit
