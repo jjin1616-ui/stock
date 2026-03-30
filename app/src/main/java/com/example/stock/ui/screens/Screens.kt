@@ -5115,8 +5115,8 @@ private fun PreMarket2Body(
         val distPct = item.distanceToEntryPct
         val expR = item.expectedR
         // 실시간 거리 계산 (시세가 있으면 실시간, 없으면 서버 제공 값 사용)
-        val realtimeDistPct = if (ranked.quote != null && ranked.quote.price > 0.0 && (item.triggerBuy ?: 0.0) > 0.0) {
-            ((item.triggerBuy!! - ranked.quote.price) / ranked.quote.price * 100.0)
+        val realtimeDistPct = if (ranked.quote != null && (ranked.quote.price ?: 0.0) > 0.0 && (item.triggerBuy ?: 0.0) > 0.0) {
+            ((item.triggerBuy!! - ranked.quote.price!!) / ranked.quote.price!! * 100.0)
         } else {
             distPct
         }

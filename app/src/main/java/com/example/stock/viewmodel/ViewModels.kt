@@ -49,6 +49,7 @@ import com.example.stock.data.api.AutoTrade2RunRequestDto
 import com.example.stock.data.api.AutoTrade2RunResponseDto
 import com.example.stock.data.api.AutoTrade2OrdersResponseDto
 import com.example.stock.data.api.AutoTrade2GateHistoryResponseDto
+import com.example.stock.data.api.TradeFeedSummaryDto
 import com.example.stock.data.api.StockSearchResponseDto
 import com.example.stock.data.repository.AppSettings
 import com.example.stock.data.repository.StockRepository
@@ -2716,7 +2717,11 @@ class Home2ViewModel(private val repository: StockRepository) : ViewModel() {
         repository.getAutoTradeFeed(limit = 20).onSuccess { resp ->
             sectionErrorState.remove("feed")
             tradeFeedState.value = resp.items.orEmpty()
-            tradeFeedSummaryState.value = resp.summary
+            tradeFeedSummaryState.value = TradeFeedSummaryDto(
+                totalCount = resp.total,
+                buyCount = resp.items?.count { (it.side ?: "").uppercase() == "BUY" },
+                sellCount = resp.items?.count { (it.side ?: "").uppercase() == "SELL" },
+            )
         }.onFailure {
             if (tradeFeedState.value.isEmpty()) sectionErrorState["feed"] = "매매 피드를 불러올 수 없습니다"
         }
