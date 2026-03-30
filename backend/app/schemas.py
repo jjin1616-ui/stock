@@ -1327,9 +1327,16 @@ class TradeFeedItem(BaseModel):
     price: float | None = None
     pnl: float | None = None
 
+class TradeFeedSummary(BaseModel):
+    total_count: int = 0
+    realized_pnl: float = 0.0
+    buy_count: int = 0
+    sell_count: int = 0
+
 class TradeFeedResponse(BaseModel):
     items: list[TradeFeedItem] = Field(default_factory=list)
     total: int = 0
+    summary: TradeFeedSummary | None = None
 
 class PnlCalendarDay(BaseModel):
     date: str
@@ -1340,3 +1347,105 @@ class PnlCalendarResponse(BaseModel):
     days: list[PnlCalendarDay] = Field(default_factory=list)
     month_total_pnl: float = 0.0
     month_trade_count: int = 0
+
+
+# ---------------------------------------------------------------------------
+# 단타2 (AutoTrade2) Schemas
+# ---------------------------------------------------------------------------
+
+class AutoTrade2SettingsPayload(BaseModel):
+    enabled: bool = False
+    environment: Literal["paper", "demo", "prod"] = "paper"
+    include_daytrade: bool = True
+    include_movers: bool = True
+    include_supply: bool = True
+    include_papers: bool = True
+    include_longterm: bool = True
+    include_favorites: bool = True
+    order_budget_krw: float = 200000.0
+    max_orders_per_run: int = 5
+    max_daily_loss_pct: float = 3.0
+    seed_krw: float = 10000000.0
+    take_profit_pct: float = 7.0
+    stop_loss_pct: float = 5.0
+    stoploss_reentry_policy: Literal["immediate", "cooldown", "day_block", "manual_block"] = "cooldown"
+    stoploss_reentry_cooldown_min: int = 30
+    takeprofit_reentry_policy: Literal["immediate", "cooldown", "day_block", "manual_block"] = "cooldown"
+    takeprofit_reentry_cooldown_min: int = 30
+    allow_market_order: bool = False
+    offhours_reservation_enabled: bool = True
+    offhours_reservation_mode: Literal["auto", "confirm"] = "auto"
+    offhours_confirm_timeout_min: int = 3
+    offhours_confirm_timeout_action: Literal["cancel", "auto"] = "cancel"
+    daily_loss_throttle_pct: float = 3.0
+    daily_loss_block_pct: float = 5.0
+    daily_loss_throttle_ratio: float = 0.5
+    avg_fallback_max_count: int = 3
+    avg_fallback_force_exit: bool = True
+    partial_tp_enabled: bool = True
+    partial_tp_ratio: float = 0.5
+    partial_tp_pct: float = 5.0
+    final_tp_pct: float = 7.0
+    preset_name: str = "balanced"
+
+
+class AutoTrade2SettingsResponse(BaseModel):
+    settings: AutoTrade2SettingsPayload
+    presets: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    updated_at: datetime
+
+
+class AutoTrade2OrderItem(BaseModel):
+    id: int
+    run_id: str
+    source_tab: str
+    environment: str | None = None
+    ticker: str
+    name: str | None = None
+    side: Literal["BUY", "SELL"] = "BUY"
+    qty: int
+    requested_price: float
+    filled_price: float | None = None
+    current_price: float | None = None
+    pnl_pct: float | None = None
+    status: str
+    broker_order_no: str | None = None
+    reason: str | None = None
+    reason_label: str | None = None
+    suggestion: str | None = None
+    requested_at: datetime
+    filled_at: datetime | None = None
+
+
+class AutoTrade2RunRequest(BaseModel):
+    dry_run: bool = False
+    limit: int | None = None
+    execution_mode: Literal["all", "exit_only", "entry_only"] = "all"
+    candidate_tickers: list[str] | None = None
+
+
+class AutoTrade2RunResponse(BaseModel):
+    run_id: str
+    message: str
+    requested_count: int
+    submitted_count: int
+    filled_count: int
+    skipped_count: int
+    throttled: bool = False
+    orders: list[AutoTrade2OrderItem]
+    metric: AutoTradePerformanceItem | None = None
+
+
+class AutoTrade2GateHistoryItem(BaseModel):
+    ymd: str
+    gate_metric: float
+    gate_threshold: float
+    gate_on: bool
+    regime: str | None = None
+    dynamic_threshold: float | None = None
+    daily_mean_r: float | None = None
+
+
+class AutoTrade2GateHistoryResponse(BaseModel):
+    count: int
+    items: list[AutoTrade2GateHistoryItem] = Field(default_factory=list)
