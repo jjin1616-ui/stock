@@ -1,0 +1,139 @@
+name: APK 빌드 및 배포
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "빌드할 브랜치"
+        required: true
+        default: "main"
+  workflow_call:
+    inputs:
+      branch:
+        type: string
+        required: false
+        default: "main"
+
+jobs:
+  build-and-deploy-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch || github.ref }}
+
+      - name: JDK 17 설정
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: 안드로이드 SDK 설정
+        uses: android-actions/setup-android@v3
+
+      - name: google-services.json 복원
+        run: |
+          if [ -n "${{ secrets.GOOGLE_SERVICES_JSON_B64 }}" ]; then
+            echo "${{ secrets.GOOGLE_SERVICES_JSON_B64 }}" | base64 -d > app/google-services.json
+            echo "google-services.json 복원 완료"
+          else
+            echo "::warning::GOOGLE_SERVICES_JSON_B64 시크릿 없음"
+            export ALLOW_FCM_DISABLED=true
+          fi
+
+      - name: Gradle 캐시
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-
+
+      - name: debug APK 빌드
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:exportDebugApk --no-daemon
+        env:
+          ALLOW_FCM_DISABLED: ${{ secrets.GOOGLE_SERVICES_JSON_B64 == '' && 'true' || 'false' }}
+
+      - name: APK 파일 확인
+        id: apk_info
+        run: |
+          APK_PATH=$(ls -t app/build/outputs/apk/export/debug/mstock_*.apk | head -n 1)
+          APK_BASE=$(basename "$APK_PATH")
+          echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
+          echo "apk_base=$APK_BASE" >> "$GITHUB_OUTPUT"
+          echo "빌드된 APK: $APK_BASE"
+
+      - name: SSH 키 설정
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2.pem
+          chmod 600 ~/.ssh/ec2.pem
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: APK EC2 업로드
+        run: |
+          APK_PATH="${{ steps.apk_info.outputs.apk_path }}"
+          APK_BASE="${{ steps.apk_info.outputs.apk_base }}"
+
+          LABEL=$(python3 -c "
+          import re,sys
+          m = re.match(r'^mstock_v(?P<vname>[^()]+)\((?P<vcode>\d+)\)_(?P<label>.+)_(?P<btype>debug|release)\.apk$', '$APK_BASE')
+          if not m: sys.exit(1)
+          print(m.group('label'))
+          ")
+          VCODE=$(python3 -c "
+          import re
+          m = re.match(r'^mstock_v(?P<vname>[^()]+)\((?P<vcode>\d+)\)_(?P<label>.+)_(?P<btype>debug|release)\.apk$', '$APK_BASE')
+          print(m.group('vcode'))
+          ")
+          VNAME=$(python3 -c "
+          import re
+          m = re.match(r'^mstock_v(?P<vname>[^()]+)\((?P<vcode>\d+)\)_(?P<label>.+)_(?P<btype>debug|release)\.apk$', '$APK_BASE')
+          print(m.group('vname'))
+          ")
+          PUBLISHED="james._${LABEL}.apk"
+          PUBLISHED_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+
+          cat > /tmp/latest.json <<ENDJSON
+          {
+            "version_name": "$VNAME",
+            "version_code": $VCODE,
+            "build_label": "$LABEL",
+            "build_type": "debug",
+            "apk_url": "http://${{ secrets.EC2_HOST }}/apk/download",
+            "apk_versioned_url": "http://${{ secrets.EC2_HOST }}/apk/$PUBLISHED",
+            "apk_filename": "$PUBLISHED",
+            "published_at": "$PUBLISHED_AT",
+            "notes": "GitHub Actions 자동 빌드"
+          }
+          ENDJSON
+
+          scp -i ~/.ssh/ec2.pem "$APK_PATH" "ubuntu@${{ secrets.EC2_HOST }}:/tmp/$APK_BASE"
+          scp -i ~/.ssh/ec2.pem /tmp/latest.json "ubuntu@${{ secrets.EC2_HOST }}:/tmp/latest.json"
+
+          ssh -i ~/.ssh/ec2.pem "ubuntu@${{ secrets.EC2_HOST }}" "sudo bash -s" <<ENDSSH
+          set -euo pipefail
+          mkdir -p /var/www/stock/apk
+          mv -f "/tmp/$APK_BASE" "/var/www/stock/apk/$PUBLISHED"
+          cd /var/www/stock/apk
+          sha256sum "$PUBLISHED" > "${PUBLISHED}.sha256"
+          ln -sf "$PUBLISHED" app-latest.apk
+          ln -sf "${PUBLISHED}.sha256" app-latest.apk.sha256
+          mv -f /tmp/latest.json /var/www/stock/apk/latest.json
+          chown -R www-data:www-data /var/www/stock/apk
+          chmod 0644 /var/www/stock/apk/*
+          echo "배포 완료: http://${{ secrets.EC2_HOST }}/apk/$PUBLISHED"
+          ENDSSH
+
+      - name: APK 다운로드 검증
+        run: |
+          MAGIC=$(curl -fsSL --range 0-1 "http://${{ secrets.EC2_HOST }}/apk/app-latest.apk" | xxd -p 2>/dev/null || echo "")
+          if [ "$MAGIC" != "504b" ]; then
+            echo "::error::APK 다운로드 검증 실패"
+            exit 1
+          fi
+          echo "APK 다운로드 검증 통과"
