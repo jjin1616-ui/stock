@@ -6,7 +6,7 @@ on:
       branch:
         description: "배포할 브랜치"
         required: true
-        default: "main"
+        default: "codex/네이티브"
   repository_dispatch:
     types: [deploy-all, deploy-server, deploy-apk]
 
@@ -19,7 +19,7 @@ jobs:
       github.event.action == 'deploy-server'
     uses: ./.github/workflows/deploy-server.yml
     with:
-      branch: ${{ github.event.client_payload.branch || inputs.branch || 'main' }}
+      branch: ${{ github.event.client_payload.branch || inputs.branch || 'codex/네이티브' }}
     secrets: inherit
 
   deploy-apk:
@@ -31,5 +31,5 @@ jobs:
     needs: deploy-server
     uses: ./.github/workflows/deploy-apk.yml
     with:
-      branch: ${{ github.event.client_payload.branch || inputs.branch || 'main' }}
+      branch: ${{ github.event.client_payload.branch || inputs.branch || 'codex/네이티브' }}
     secrets: inherit
