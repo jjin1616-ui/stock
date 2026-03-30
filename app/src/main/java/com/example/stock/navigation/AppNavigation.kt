@@ -64,7 +64,7 @@ enum class AppTab(val route: String, val label: String, val iconRes: Int) {
     PREMARKET2("premarket2", "단타2", R.drawable.ic_tab_lightning),
     SUPPLY("supply", "수급", R.drawable.ic_tab_supply),
     AUTOTRADE("autotrade", "자동", R.drawable.ic_tab_eod),
-    AUTOTRADE2("autotrade2", "단타2", R.drawable.ic_tab_eod),
+    AUTOTRADE2("autotrade2", "자동2", R.drawable.ic_tab_eod),
     HOLDINGS("holdings", "보유", R.drawable.ic_tab_holdings),
     MOVERS("movers", "급등", R.drawable.ic_tab_chart),
     US("us", "미장", R.drawable.ic_tab_us),
