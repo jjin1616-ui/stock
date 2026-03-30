@@ -55,6 +55,8 @@ import com.example.stock.ui.common.AppTopBar
 import com.example.stock.viewmodel.AppViewModelFactory
 import com.example.stock.viewmodel.AutoTrade2ViewModel
 import java.text.NumberFormat
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private val krwFmt = NumberFormat.getNumberInstance(Locale.KOREA)
@@ -255,18 +257,57 @@ fun AutoTrade2Screen() {
             Spacer(Modifier.height(16.dp))
 
             // 주문 내역
-            Text("최근 주문", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Spacer(Modifier.height(8.dp))
+            val allOrders = ordersState.data?.items.orEmpty()
+            val todayStr = remember { LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE) }
+            var showAllOrders by remember { mutableStateOf(false) }
+            val todayOrders = remember(allOrders, todayStr) {
+                allOrders.filter { (it.requestedAt ?: "").startsWith(todayStr) }
+            }
+            val displayOrders = if (showAllOrders) allOrders.take(50) else todayOrders
+
+            // 오늘 요약
+            if (!ordersState.loading && todayOrders.isNotEmpty()) {
+                TodaySummaryCard2(todayOrders)
+                Spacer(Modifier.height(12.dp))
+            }
+
+            // 헤더 + 필터 토글
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (showAllOrders) "전체 주문" else "오늘 주문",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                )
+                if (!showAllOrders && todayOrders.isNotEmpty()) {
+                    Spacer(Modifier.width(6.dp))
+                    Text("${todayOrders.size}건", fontSize = 13.sp, color = Color(0xFF1565C0), fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { showAllOrders = !showAllOrders }) {
+                    Text(
+                        if (showAllOrders) "오늘만" else "전체보기",
+                        fontSize = 13.sp,
+                        color = Color(0xFF1565C0),
+                    )
+                }
+            }
+            Spacer(Modifier.height(4.dp))
             if (ordersState.loading) {
                 CircularProgressIndicator(modifier = Modifier.size(24.dp))
             } else if (ordersState.error != null) {
                 Text(ordersState.error ?: "", color = Color(0xFFC62828), fontSize = 13.sp)
             } else {
-                val orders = ordersState.data?.items.orEmpty()
-                if (orders.isEmpty()) {
-                    Text("주문 내역이 없습니다.", fontSize = 13.sp, color = Color.Gray)
+                if (displayOrders.isEmpty()) {
+                    Text(
+                        if (showAllOrders) "주문 내역이 없습니다." else "오늘 주문이 없습니다.",
+                        fontSize = 13.sp,
+                        color = Color.Gray,
+                    )
                 } else {
-                    orders.take(30).forEach { order ->
+                    displayOrders.forEach { order ->
                         OrderCard2(order)
                         Spacer(Modifier.height(6.dp))
                     }
@@ -496,6 +537,55 @@ private fun GateHistoryList2(items: List<AutoTrade2GateHistoryItemDto>) {
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TodaySummaryCard2(todayOrders: List<AutoTrade2OrderItemDto>) {
+    val filled = todayOrders.count { it.status?.uppercase() in setOf("BROKER_FILLED", "PAPER_FILLED") }
+    val skipped = todayOrders.count { it.status?.uppercase() == "SKIPPED" }
+    val errors = todayOrders.count { it.status?.uppercase() in setOf("ERROR", "BROKER_REJECTED") }
+    val buys = todayOrders.count { it.side?.uppercase() == "BUY" }
+    val sells = todayOrders.count { it.side?.uppercase() == "SELL" }
+    val pnlSum = todayOrders.filter { it.pnlPct != null }.sumOf { it.pnlPct ?: 0.0 }
+    val pnlColor = if (pnlSum >= 0) Color(0xFFC62828) else Color(0xFF1565C0)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF1F8E9)),
+        shape = RoundedCornerShape(10.dp),
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text("오늘 요약", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("체결", fontSize = 11.sp, color = Color.Gray)
+                    Text("$filled", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF2E7D32))
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("스킵", fontSize = 11.sp, color = Color.Gray)
+                    Text("$skipped", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF757575))
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("에러", fontSize = 11.sp, color = Color.Gray)
+                    Text("$errors", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (errors > 0) Color(0xFFC62828) else Color(0xFF757575))
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("매수/매도", fontSize = 11.sp, color = Color.Gray)
+                    Text("$buys/$sells", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+                if (pnlSum != 0.0) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("수익률합", fontSize = 11.sp, color = Color.Gray)
+                        Text(String.format("%+.2f%%", pnlSum), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = pnlColor)
+                    }
                 }
             }
         }
