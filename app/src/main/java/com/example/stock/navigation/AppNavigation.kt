@@ -27,7 +27,6 @@ import com.example.stock.ServiceLocator
 import com.example.stock.ui.common.TossBottomBar
 import com.example.stock.ui.screens.AlertsScreen
 import com.example.stock.ui.screens.AutoTradeScreen
-import com.example.stock.ui.screens.Home2Screen
 import com.example.stock.ui.screens.HomeScreen
 import com.example.stock.ui.screens.HoldingsScreen
 import com.example.stock.ui.screens.FavoritesScreen
@@ -35,6 +34,7 @@ import com.example.stock.ui.screens.LongtermScreen
 import com.example.stock.ui.screens.Movers2Screen
 import com.example.stock.ui.screens.NewsScreen
 import com.example.stock.ui.screens.PapersScreen
+import com.example.stock.ui.screens.PreMarket2Screen
 import com.example.stock.ui.screens.PreMarketScreen
 import com.example.stock.ui.screens.SettingsScreen
 import com.example.stock.ui.screens.SupplyScreen
@@ -59,8 +59,8 @@ private data class TabAccessState(
 
 enum class AppTab(val route: String, val label: String, val iconRes: Int) {
     HOME("home", "홈", R.drawable.ic_tab_home),
-    HOME2("home2", "홈2", R.drawable.ic_tab_home),  // 기존 홈 아이콘 재사용
     PREMARKET("premarket", "단타", R.drawable.ic_tab_lightning),
+    PREMARKET2("premarket2", "단타2", R.drawable.ic_tab_lightning),
     SUPPLY("supply", "수급", R.drawable.ic_tab_supply),
     AUTOTRADE("autotrade", "자동", R.drawable.ic_tab_eod),
     HOLDINGS("holdings", "보유", R.drawable.ic_tab_holdings),
@@ -125,8 +125,8 @@ private fun toTabOrderCsv(order: List<AppTab>): String = order.joinToString(",")
 
 private fun isTabAllowed(tab: AppTab, access: TabAccessState): Boolean = when (tab) {
     AppTab.HOME -> true
-    AppTab.HOME2 -> true
     AppTab.PREMARKET -> access.daytradeAllowed
+    AppTab.PREMARKET2 -> access.daytradeAllowed
     AppTab.SUPPLY -> access.supplyAllowed
     AppTab.AUTOTRADE -> access.autotradeAllowed
     AppTab.HOLDINGS -> access.holdingsAllowed
@@ -243,14 +243,18 @@ fun AppNavigation(startRoute: String? = null, modifier: Modifier = Modifier) {
             composable(AppTab.HOME.route) {
                 HomeScreen()
             }
-            composable(AppTab.HOME2.route) {
-                Home2Screen()
-            }
             composable(AppTab.PREMARKET.route) {
                 if (tabAccess.daytradeAllowed) {
                     PreMarketScreen()
                 } else {
                     MenuBlockedScreen(tabLabel = AppTab.PREMARKET.label)
+                }
+            }
+            composable(AppTab.PREMARKET2.route) {
+                if (tabAccess.daytradeAllowed) {
+                    PreMarket2Screen()
+                } else {
+                    MenuBlockedScreen(tabLabel = AppTab.PREMARKET2.label)
                 }
             }
             composable(AppTab.SUPPLY.route) {

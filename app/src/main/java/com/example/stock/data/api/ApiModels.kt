@@ -65,7 +65,6 @@ data class TradeFeedItemDto(
 data class TradeFeedResponseDto(
     val items: List<TradeFeedItemDto>? = emptyList(),
     val total: Int? = 0,
-    val summary: TradeFeedSummaryDto? = null,
 )
 
 // ── 실시간 시장 지수 ──
@@ -139,6 +138,8 @@ data class DaytradeTopItemDto(
     @SerialName("target_1") val target1: Double? = 0.0,
     @SerialName("stop_loss") val stopLoss: Double? = 0.0,
     val thesis: String? = "",
+    @SerialName("distance_to_entry_pct") val distanceToEntryPct: Double? = null,
+    @SerialName("expected_r") val expectedR: Double? = null,
 )
 
 @Serializable
@@ -1406,73 +1407,4 @@ data class NewsClusterResponseDto(
 data class NewsArticlesResponseDto(
     val meta: NewsMetaDto? = NewsMetaDto(),
     val articles: List<NewsArticleItemDto>? = emptyList(),
-)
-
-// ── Home2 전용 스텁 DTO (Phase 1에서 서버 연동 시 필드 확장 예정) ──
-
-@Serializable
-data class TradeFeedSummaryDto(
-    @SerialName("total_count") val totalCount: Int? = 0,
-    @SerialName("realized_pnl") val realizedPnl: Double? = 0.0,
-    @SerialName("buy_count") val buyCount: Int? = 0,
-    @SerialName("sell_count") val sellCount: Int? = 0,
-)
-
-@Serializable
-data class SectorItemDto(
-    val name: String? = null,
-    @SerialName("change_pct") val changePct: Double? = 0.0,
-    val volume: Int? = 0,
-)
-
-@Serializable
-data class SectorResponseDto(
-    val items: List<SectorItemDto>? = emptyList(),
-    @SerialName("as_of") val asOf: String? = null,
-    val source: String? = null,
-)
-
-@Serializable
-data class VolumeSurgeItemDto(
-    val ticker: String? = null,
-    val name: String? = null,
-    @SerialName("volume_ratio") val volumeRatio: Double? = 0.0,
-    val price: Double? = 0.0,
-    @SerialName("change_pct") val changePct: Double? = 0.0,
-)
-
-@Serializable
-data class VolumeSurgeResponseDto(
-    val items: List<VolumeSurgeItemDto>? = emptyList(),
-    @SerialName("as_of") val asOf: String? = null,
-)
-
-@Serializable
-data class WeekExtremeItemDto(
-    val ticker: String? = null,
-    val name: String? = null,
-    val price: Double? = 0.0,
-    @SerialName("prev_extreme") val prevExtreme: Double? = 0.0,
-)
-
-@Serializable
-data class WeekExtremeResponseDto(
-    val highs: List<WeekExtremeItemDto>? = emptyList(),
-    val lows: List<WeekExtremeItemDto>? = emptyList(),
-    @SerialName("as_of") val asOf: String? = null,
-)
-
-@Serializable
-data class DividendItemDto(
-    val ticker: String? = null,
-    val name: String? = null,
-    @SerialName("ex_date") val exDate: String? = null,
-    @SerialName("dividend_per_share") val dividendPerShare: Double? = 0.0,
-    @SerialName("dividend_yield") val dividendYield: Double? = 0.0,
-)
-
-@Serializable
-data class DividendResponseDto(
-    val items: List<DividendItemDto>? = emptyList(),
-    @SerialName("as_of") val asOf: String? = null,
 )
