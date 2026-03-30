@@ -8731,3 +8731,273 @@ def get_autotrade_pnl_calendar(
         month_total = sum(d.pnl for d in days)
         month_count = sum(d.trade_count for d in days)
         return PnlCalendarResponse(days=days, month_total_pnl=month_total, month_trade_count=month_count)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 단타2 (autotrade2) API — 기존 autotrade와 완전 독립
+# ─────────────────────────────────────────────────────────────────────────────
+
+from app.autotrade2_service import (
+    run_autotrade2_once,
+    build_autotrade2_candidates,
+    recompute_daily_metric as recompute_daily_metric2,
+    list_active_reentry_blocks2,
+    release_reentry_blocks2,
+    PRESETS as AUTOTRADE2_PRESETS,
+)
+from app.autotrade2_reason_codes import reason_code_label as reason_code_label2, reason_code_suggestion
+from app.models import (
+    AutoTrade2Setting,
+    AutoTrade2Order,
+    AutoTrade2DailyMetric,
+    AutoTrade2GateHistory,
+    AutoTrade2SymbolRule,
+)
+from app.schemas import (
+    AutoTrade2SettingsPayload,
+    AutoTrade2SettingsResponse,
+    AutoTrade2OrderItem,
+    AutoTrade2RunRequest,
+    AutoTrade2RunResponse,
+    AutoTrade2GateHistoryItem,
+    AutoTrade2GateHistoryResponse,
+)
+
+
+def _get_or_create_autotrade2_setting(session, user_id: int) -> AutoTrade2Setting:
+    row = session.scalar(
+        select(AutoTrade2Setting).where(AutoTrade2Setting.user_id == user_id).limit(1)
+    )
+    if row is not None:
+        return row
+    ts = datetime.now(tz=SEOUL)
+    row = AutoTrade2Setting(user_id=user_id, created_at=ts, updated_at=ts)
+    session.add(row)
+    session.flush()
+    return row
+
+
+def _autotrade2_settings_payload(row: AutoTrade2Setting) -> AutoTrade2SettingsPayload:
+    return AutoTrade2SettingsPayload(
+        enabled=bool(row.enabled),
+        environment=_autotrade_env(str(row.environment or "demo")),
+        include_daytrade=bool(row.include_daytrade),
+        include_movers=bool(row.include_movers),
+        include_supply=bool(row.include_supply),
+        include_papers=bool(row.include_papers),
+        include_longterm=bool(row.include_longterm),
+        include_favorites=bool(row.include_favorites),
+        order_budget_krw=float(row.order_budget_krw or 0.0),
+        max_orders_per_run=int(row.max_orders_per_run or 0),
+        max_daily_loss_pct=float(row.max_daily_loss_pct or 0.0),
+        seed_krw=float(row.seed_krw or 0.0),
+        take_profit_pct=float(row.take_profit_pct or 0.0),
+        stop_loss_pct=float(row.stop_loss_pct or 0.0),
+        stoploss_reentry_policy=str(getattr(row, "stoploss_reentry_policy", "cooldown") or "cooldown"),
+        stoploss_reentry_cooldown_min=max(1, min(1440, int(getattr(row, "stoploss_reentry_cooldown_min", 30) or 30))),
+        takeprofit_reentry_policy=str(getattr(row, "takeprofit_reentry_policy", "cooldown") or "cooldown"),
+        takeprofit_reentry_cooldown_min=max(1, min(1440, int(getattr(row, "takeprofit_reentry_cooldown_min", 30) or 30))),
+        allow_market_order=bool(row.allow_market_order),
+        offhours_reservation_enabled=bool(row.offhours_reservation_enabled),
+        offhours_reservation_mode=str(row.offhours_reservation_mode or "auto"),
+        offhours_confirm_timeout_min=int(row.offhours_confirm_timeout_min or 3),
+        offhours_confirm_timeout_action=str(row.offhours_confirm_timeout_action or "cancel"),
+        # 단타2 신규 필드
+        daily_loss_throttle_pct=float(row.daily_loss_throttle_pct or 3.0),
+        daily_loss_block_pct=float(row.daily_loss_block_pct or 5.0),
+        daily_loss_throttle_ratio=float(row.daily_loss_throttle_ratio or 0.5),
+        avg_fallback_max_count=int(row.avg_fallback_max_count or 3),
+        avg_fallback_force_exit=bool(row.avg_fallback_force_exit),
+        partial_tp_enabled=bool(row.partial_tp_enabled),
+        partial_tp_ratio=float(row.partial_tp_ratio or 0.5),
+        partial_tp_pct=float(row.partial_tp_pct or 5.0),
+        final_tp_pct=float(row.final_tp_pct or 7.0),
+        preset_name=str(row.preset_name or "balanced"),
+    )
+
+
+def _autotrade2_order_item(row: AutoTrade2Order) -> AutoTrade2OrderItem:
+    try:
+        meta = json.loads(str(getattr(row, "metadata_json", None) or "{}"))
+    except Exception:
+        meta = {}
+    return AutoTrade2OrderItem(
+        id=int(row.id),
+        run_id=str(row.run_id or ""),
+        source_tab=str(row.source_tab or "UNKNOWN"),
+        environment=str(meta.get("environment") or ""),
+        ticker=str(row.ticker or ""),
+        name=row.name,
+        side=("SELL" if str(row.side).upper() == "SELL" else "BUY"),
+        qty=int(row.qty or 0),
+        requested_price=float(row.requested_price or 0.0),
+        filled_price=(float(row.filled_price) if row.filled_price is not None else None),
+        current_price=(float(row.current_price) if row.current_price is not None else None),
+        pnl_pct=(float(row.pnl_pct) if row.pnl_pct is not None else None),
+        status=str(row.status or "SKIPPED"),
+        broker_order_no=row.broker_order_no,
+        reason=row.reason,
+        reason_label=reason_code_label2(str(row.reason or "")),
+        suggestion=row.suggestion,
+        requested_at=row.requested_at,
+        filled_at=row.filled_at,
+    )
+
+
+@app.get("/autotrade2/settings", response_model=AutoTrade2SettingsResponse)
+def get_autotrade2_settings(ctx=Depends(get_token_context)):
+    user = require_active_user(ctx)
+    with session_scope() as session:
+        row = _get_or_create_autotrade2_setting(session, user.id)
+        return AutoTrade2SettingsResponse(
+            settings=_autotrade2_settings_payload(row),
+            presets=AUTOTRADE2_PRESETS,
+            updated_at=row.updated_at,
+        )
+
+
+@app.post("/autotrade2/settings", response_model=AutoTrade2SettingsResponse)
+def save_autotrade2_settings(payload: AutoTrade2SettingsPayload, ctx=Depends(get_token_context)):
+    user = require_active_user(ctx)
+    ts = datetime.now(tz=SEOUL)
+    with session_scope() as session:
+        row = _get_or_create_autotrade2_setting(session, user.id)
+        for k, v in payload.model_dump().items():
+            if hasattr(row, k):
+                setattr(row, k, v)
+        row.updated_at = ts
+        session.flush()
+        return AutoTrade2SettingsResponse(
+            settings=_autotrade2_settings_payload(row),
+            presets=AUTOTRADE2_PRESETS,
+            updated_at=row.updated_at,
+        )
+
+
+@app.post("/autotrade2/settings/preset/{preset_name}", response_model=AutoTrade2SettingsResponse)
+def apply_autotrade2_preset(preset_name: str, ctx=Depends(get_token_context)):
+    """P1-3: 프리셋 적용."""
+    user = require_active_user(ctx)
+    preset = AUTOTRADE2_PRESETS.get(preset_name)
+    if preset is None:
+        raise HTTPException(status_code=400, detail=f"Unknown preset: {preset_name}")
+    ts = datetime.now(tz=SEOUL)
+    with session_scope() as session:
+        row = _get_or_create_autotrade2_setting(session, user.id)
+        for k, v in preset.items():
+            if k == "label":
+                continue
+            if hasattr(row, k):
+                setattr(row, k, v)
+        row.preset_name = preset_name
+        row.updated_at = ts
+        session.flush()
+        return AutoTrade2SettingsResponse(
+            settings=_autotrade2_settings_payload(row),
+            presets=AUTOTRADE2_PRESETS,
+            updated_at=row.updated_at,
+        )
+
+
+@app.post("/autotrade2/run", response_model=AutoTrade2RunResponse)
+def run_autotrade2(payload: AutoTrade2RunRequest, ctx=Depends(get_token_context)):
+    user = require_active_user(ctx)
+    with session_scope() as session:
+        cfg = _get_or_create_autotrade2_setting(session, user.id)
+        user_creds2, use_user_creds2 = resolve_user_kis_credentials(session, user.id)
+        broker_creds = (user_creds2 if use_user_creds2 else None) if cfg.environment in {"demo", "prod"} else None
+        result = run_autotrade2_once(
+            session, user.id, cfg,
+            dry_run=payload.dry_run,
+            limit=payload.limit,
+            broker_credentials=broker_creds,
+            execution_mode=payload.execution_mode,
+            candidate_tickers=payload.candidate_tickers,
+        )
+        orders = [_autotrade2_order_item(o) for o in result.created_orders]
+        metric_item = None
+        if result.metric:
+            m = result.metric
+            metric_item = AutoTradePerformanceItem(
+                ymd=str(m.ymd),
+                orders_total=int(m.orders_total or 0),
+                filled_total=int(m.filled_total or 0),
+                buy_amount_krw=float(m.buy_amount_krw or 0.0),
+                eval_amount_krw=float(m.eval_amount_krw or 0.0),
+                realized_pnl_krw=float(m.realized_pnl_krw or 0.0),
+                unrealized_pnl_krw=float(m.unrealized_pnl_krw or 0.0),
+                roi_pct=float(m.roi_pct or 0.0),
+                win_rate=float(m.win_rate or 0.0),
+                mdd_pct=float(m.mdd_pct or 0.0),
+                updated_at=m.updated_at,
+            )
+        return AutoTrade2RunResponse(
+            run_id=result.run_id,
+            message=result.message,
+            requested_count=len(orders),
+            submitted_count=sum(1 for o in orders if o.status in ("BROKER_SUBMITTED", "BROKER_FILLED")),
+            filled_count=sum(1 for o in orders if o.status in ("PAPER_FILLED", "BROKER_FILLED")),
+            skipped_count=sum(1 for o in orders if o.status == "SKIPPED"),
+            throttled="THROTTLED" in result.message,
+            orders=orders,
+            metric=metric_item,
+        )
+
+
+@app.get("/autotrade2/orders")
+def get_autotrade2_orders(
+    days: int = 7,
+    side: str | None = None,
+    status: str | None = None,
+    limit: int = 200,
+    ctx=Depends(get_token_context),
+):
+    user = require_active_user(ctx)
+    cutoff = datetime.now(tz=SEOUL) - timedelta(days=max(1, min(90, days)))
+    with session_scope() as session:
+        q = (
+            session.query(AutoTrade2Order)
+            .filter(AutoTrade2Order.user_id == user.id, AutoTrade2Order.requested_at >= cutoff)
+        )
+        if side:
+            q = q.filter(AutoTrade2Order.side == side.upper())
+        if status:
+            q = q.filter(AutoTrade2Order.status == status.upper())
+        rows = q.order_by(AutoTrade2Order.requested_at.desc()).limit(max(1, min(500, limit))).all()
+        items = [_autotrade2_order_item(r) for r in rows]
+        return {"total": len(items), "items": items}
+
+
+@app.get("/autotrade2/gate-history", response_model=AutoTrade2GateHistoryResponse)
+def get_autotrade2_gate_history(days: int = 30, ctx=Depends(get_token_context)):
+    """P1-2: Gate 시계열 조회."""
+    user = require_active_user(ctx)
+    cutoff = date.today() - timedelta(days=max(1, min(365, days)))
+    with session_scope() as session:
+        rows = (
+            session.query(AutoTrade2GateHistory)
+            .filter(AutoTrade2GateHistory.ymd >= cutoff)
+            .order_by(AutoTrade2GateHistory.ymd.desc())
+            .limit(max(1, min(365, days)))
+            .all()
+        )
+        items = [
+            AutoTrade2GateHistoryItem(
+                ymd=str(r.ymd),
+                gate_metric=float(r.gate_metric or 0.0),
+                gate_threshold=float(r.gate_threshold or 0.0),
+                gate_on=bool(r.gate_on),
+                regime=r.regime,
+                dynamic_threshold=(float(r.dynamic_threshold) if r.dynamic_threshold is not None else None),
+                daily_mean_r=(float(r.daily_mean_r) if r.daily_mean_r is not None else None),
+            )
+            for r in rows
+        ]
+        return AutoTrade2GateHistoryResponse(count=len(items), items=items)
+
+
+@app.get("/autotrade2/presets")
+def get_autotrade2_presets(ctx=Depends(get_token_context)):
+    """P1-3: 프리셋 목록 조회."""
+    require_active_user(ctx)
+    return {"presets": AUTOTRADE2_PRESETS}

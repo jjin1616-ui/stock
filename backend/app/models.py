@@ -428,3 +428,185 @@ class NewsEntityMention(Base):
     published_ymd: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     event_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     impact: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 단타2 (autotrade2) — 기존 autotrade와 독립된 테이블, 롤백 시 삭제만 하면 됨
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class AutoTrade2Setting(Base):
+    """단타2 설정 — 기존 AutoTradeSetting에 부분익절/단계적 손실/강제청산 필드 추가."""
+    __tablename__ = "autotrade2_settings"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_autotrade2_settings_user"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    environment: Mapped[str] = mapped_column(String(16), nullable=False, default="paper")
+    # 소스 ON/OFF
+    include_daytrade: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    include_movers: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    include_supply: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    include_papers: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    include_longterm: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    include_favorites: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # 기본 매매 파라미터
+    order_budget_krw: Mapped[float] = mapped_column(Float, nullable=False, default=200000.0)
+    max_orders_per_run: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    seed_krw: Mapped[float] = mapped_column(Float, nullable=False, default=10000000.0)
+    take_profit_pct: Mapped[float] = mapped_column(Float, nullable=False, default=7.0)
+    stop_loss_pct: Mapped[float] = mapped_column(Float, nullable=False, default=5.0)
+    # 리엔트리 정책
+    stoploss_reentry_policy: Mapped[str] = mapped_column(String(16), nullable=False, default="cooldown")
+    stoploss_reentry_cooldown_min: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    takeprofit_reentry_policy: Mapped[str] = mapped_column(String(16), nullable=False, default="cooldown")
+    takeprofit_reentry_cooldown_min: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    allow_market_order: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 장외 예약
+    offhours_reservation_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    offhours_reservation_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="auto")
+    offhours_confirm_timeout_min: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    offhours_confirm_timeout_action: Mapped[str] = mapped_column(String(16), nullable=False, default="cancel")
+    # ── 단타2 신규 필드 ──
+    # P0-3: 단계적 일일 손실 한계
+    max_daily_loss_pct: Mapped[float] = mapped_column(Float, nullable=False, default=3.0)
+    daily_loss_throttle_pct: Mapped[float] = mapped_column(Float, nullable=False, default=3.0)
+    daily_loss_block_pct: Mapped[float] = mapped_column(Float, nullable=False, default=5.0)
+    daily_loss_throttle_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    # P0-1: AVG_FALLBACK 강제 청산
+    avg_fallback_max_count: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    avg_fallback_force_exit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # P1-4: 부분 익절
+    partial_tp_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    partial_tp_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    partial_tp_pct: Mapped[float] = mapped_column(Float, nullable=False, default=5.0)
+    final_tp_pct: Mapped[float] = mapped_column(Float, nullable=False, default=7.0)
+    # P1-3: 프리셋
+    preset_name: Mapped[str] = mapped_column(String(32), nullable=False, default="balanced")
+    # 타임스탬프
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AutoTrade2Order(Base):
+    """단타2 주문 기록."""
+    __tablename__ = "autotrade2_orders"
+    __table_args__ = (
+        Index("idx_autotrade2_orders_user_run", "user_id", "run_id"),
+        Index("idx_autotrade2_orders_ticker_status", "ticker", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    run_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    source_tab: Mapped[str] = mapped_column(String(32), nullable=False, default="UNKNOWN")
+    ticker: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    qty: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    requested_price: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    filled_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    current_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pnl_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="SKIPPED")
+    broker_order_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suggestion: Mapped[str | None] = mapped_column(Text, nullable=True)  # P1-1: 사유 suggestion
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    filled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AutoTrade2DailyMetric(Base):
+    """단타2 일일 성과."""
+    __tablename__ = "autotrade2_daily_metrics"
+    __table_args__ = (UniqueConstraint("user_id", "ymd", name="uq_autotrade2_daily_user_ymd"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    ymd: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    orders_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    filled_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    buy_amount_krw: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    eval_amount_krw: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    realized_pnl_krw: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    unrealized_pnl_krw: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    roi_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    win_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    mdd_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    # 단타2: 손실 단계 상태 기록
+    loss_throttle_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    loss_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AutoTrade2ReentryBlock(Base):
+    """단타2 리엔트리 블락."""
+    __tablename__ = "autotrade2_reentry_blocks"
+    __table_args__ = (
+        Index("idx_autotrade2_reentry_user_ticker", "user_id", "ticker", "environment", "is_active"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    environment: Mapped[str] = mapped_column(String(16), nullable=False, default="demo")
+    ticker: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    trigger_reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    blocked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class AutoTrade2AvgFallbackTracker(Base):
+    """P0-1: AVG_FALLBACK 누적 카운트 — 3회 초과 시 강제 청산 트리거."""
+    __tablename__ = "autotrade2_avg_fallback_tracker"
+    __table_args__ = (
+        UniqueConstraint("user_id", "ticker", "environment", name="uq_autotrade2_fallback_user_ticker_env"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    ticker: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    environment: Mapped[str] = mapped_column(String(16), nullable=False, default="demo")
+    fallback_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_fallback_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    force_exited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class AutoTrade2GateHistory(Base):
+    """P1-2: Gate ON/OFF 시계열 기록."""
+    __tablename__ = "autotrade2_gate_history"
+    __table_args__ = (
+        UniqueConstraint("ymd", name="uq_autotrade2_gate_ymd"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ymd: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    gate_metric: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    gate_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    gate_on: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    regime: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    dynamic_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    daily_mean_r: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AutoTrade2SymbolRule(Base):
+    """단타2 심볼별 규칙."""
+    __tablename__ = "autotrade2_symbol_rules"
+    __table_args__ = (
+        UniqueConstraint("user_id", "ticker", name="uq_autotrade2_symbol_rule_user_ticker"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    ticker: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    take_profit_pct: Mapped[float] = mapped_column(Float, nullable=False, default=7.0)
+    stop_loss_pct: Mapped[float] = mapped_column(Float, nullable=False, default=5.0)
+    partial_tp_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
