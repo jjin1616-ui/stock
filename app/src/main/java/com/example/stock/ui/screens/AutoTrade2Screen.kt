@@ -109,6 +109,8 @@ private fun friendlyRunMessage2(raw: String?): String {
     if (msg.isBlank()) return "응답 없음"
     val up = msg.uppercase()
     return when {
+        up.startsWith("EOD_FORCE_EXIT") -> "장 마감 강제 청산이 실행되었습니다."
+        up.startsWith("EOD_ENTRY_BLOCKED") -> "장 마감 임박(15:25+)으로 신규 매수가 차단되었습니다."
         up.startsWith("RUN_OK") -> "실행 완료"
         up.startsWith("DRY_RUN") -> "전략 점검 완료(주문 없음)"
         up.startsWith("RUN_ALREADY_IN_PROGRESS") -> "실행 중입니다. 완료 후 다시 시도하세요."
@@ -364,6 +366,18 @@ private fun StatusSummaryCard2(
                     fontSize = 12.sp,
                     color = Color(0xFFE65100),
                     fontWeight = FontWeight.SemiBold,
+                )
+            }
+            // EOD 경고: 15:25 이후
+            val hour = java.time.LocalTime.now().hour
+            val minute = java.time.LocalTime.now().minute
+            if (hour >= 15 && minute >= 25) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "장 마감 임박 — 강제 청산 모드 (신규 매수 차단)",
+                    fontSize = 12.sp,
+                    color = Color(0xFFC62828),
+                    fontWeight = FontWeight.Bold,
                 )
             }
         }

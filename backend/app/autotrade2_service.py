@@ -59,6 +59,33 @@ def _is_kr_ticker(ticker: str) -> bool:
     return ticker.isdigit() and len(ticker) == 6
 
 
+# [P0-4] KRX 호가 단위 반올림
+def _krx_tick_size(price: float) -> float:
+    """KRX 호가 단위를 반환합니다."""
+    if price < 2000:
+        return 1.0
+    elif price < 5000:
+        return 5.0
+    elif price < 20000:
+        return 10.0
+    elif price < 50000:
+        return 50.0
+    elif price < 200000:
+        return 100.0
+    elif price < 500000:
+        return 500.0
+    else:
+        return 1000.0
+
+
+def _round_to_tick(price: float) -> float:
+    """가격을 KRX 호가 단위로 반올림합니다."""
+    if price <= 0.0:
+        return 0.0
+    tick = _krx_tick_size(price)
+    return round(price / tick) * tick
+
+
 def _is_real_fill_status(status: str) -> bool:
     return status in {"PAPER_FILLED", "BROKER_FILLED"}
 
@@ -313,10 +340,13 @@ def build_autotrade2_candidates(
 
 # ── PnL 스냅샷 빌드 ──
 
-def _build_pnl_snapshot(session: Session, user_id: int, ymd: date) -> _PnLSnapshot:
+def _build_pnl_snapshot(session: Session, user_id: int, ymd: date, *, lookback_days: int = 30) -> _PnLSnapshot:
+    # [M-1 수정] 전체 조회 → lookback_days 필터 적용 (성능 개선)
+    cutoff = ymd - timedelta(days=lookback_days)
     rows = (
         session.query(AutoTrade2Order)
-        .filter(AutoTrade2Order.user_id == user_id)
+        .filter(AutoTrade2Order.user_id == user_id,
+                func.date(AutoTrade2Order.requested_at) >= cutoff)
         .order_by(AutoTrade2Order.requested_at.asc(), AutoTrade2Order.id.asc())
         .all()
     )
@@ -421,6 +451,12 @@ def recompute_daily_metric(session: Session, user_id: int, ymd: date, *, cfg: Au
         if pnl_pct < min_pnl_pct:
             min_pnl_pct = pnl_pct
 
+    # [M-5 수정] ROI 계산: 보유 포지션과 실현 손익을 분리하여 정확하게 계산
+    # realized ROI: 당일 청산 거래 기준
+    realized_roi_pct = ((snapshot.realized_today_krw / snapshot.realized_cost_today_krw) * 100.0) if snapshot.realized_cost_today_krw > 0.0 else 0.0
+    # unrealized ROI: 현재 보유 포지션 기준
+    unrealized_roi_pct = ((unrealized / buy_amount) * 100.0) if buy_amount > 0.0 else 0.0
+    # 총 ROI: 전체 투자 금액 대비 전체 손익
     base_amount = buy_amount + snapshot.realized_cost_today_krw
     total_pnl = snapshot.realized_today_krw + unrealized
     roi_pct = ((total_pnl / base_amount) * 100.0) if base_amount > 0.0 else 0.0
@@ -705,6 +741,19 @@ def _run_inner(
     mode = str(execution_mode or "all").strip().lower()
     if mode not in {"all", "exit_only", "entry_only"}:
         mode = "all"
+
+    # [C-3] EOD 강제 청산: 15:25 KST 이후 → exit_only 강제 + 전 포지션 매도
+    from zoneinfo import ZoneInfo
+    kst_now = datetime.now(ZoneInfo("Asia/Seoul"))
+    eod_force_exit = False
+    if kst_now.hour >= 15 and kst_now.minute >= 25:
+        eod_force_exit = True
+        if mode == "entry_only":
+            return RunResult(run_id=uuid4().hex[:12], message="EOD_ENTRY_BLOCKED: 장 마감 임박 (15:25+)",
+                             candidates=[], created_orders=[], metric=None)
+        mode = "exit_only"
+        logger.info("[autotrade2] EOD 강제 청산 모드 진입: %s", kst_now.strftime("%H:%M"))
+
     run_exit_phase = mode in {"all", "exit_only"}
     run_entry_phase = mode in {"all", "entry_only"}
 
@@ -735,8 +784,12 @@ def _run_inner(
         .limit(1)
     )
 
+    # [C-2 수정] 첫 실행 시 metric이 없으면 먼저 계산하여 daily loss 우회 방지
+    if latest_metric is None:
+        latest_metric = recompute_daily_metric(session, user_id, today, cfg=cfg)
+
     # P0-3: 단계적 일일 손실 판단
-    current_roi = float(latest_metric.roi_pct or 0.0) if latest_metric else 0.0
+    current_roi = float(latest_metric.roi_pct or 0.0)
     throttle_pct = abs(float(cfg.daily_loss_throttle_pct or 3.0))
     block_pct = abs(float(cfg.daily_loss_block_pct or 5.0))
     throttle_ratio = max(0.1, min(0.9, float(cfg.daily_loss_throttle_ratio or 0.5)))
@@ -873,6 +926,35 @@ def _run_inner(
 
     # ── 1) Exit Phase ──
     if run_exit_phase:
+        # [C-3] EOD 강제 청산: 모든 오픈 포지션 시장가 매도
+        if eod_force_exit:
+            for pos in sorted(runtime_positions, key=lambda x: x.ticker):
+                ticker = _norm_ticker(str(pos.ticker or ""))
+                if not ticker or pos.qty <= 0:
+                    continue
+                q = open_quote_map.get(ticker)
+                qpx = float(q.price or 0.0) if q is not None else 0.0
+                current, price_source = _resolve_runtime_price(pos, qpx)
+                sell_qty = max(0, min(int(pos.qty), int(pos.sellable_qty)))
+                if sell_qty <= 0:
+                    continue
+                pnl_pct = ((current / pos.avg_price) - 1.0) * 100.0 if pos.avg_price > 0.0 and current > 0.0 else 0.0
+                _submit_order(
+                    side="SELL", source_tab=pos.source_tab, ticker=ticker, name=pos.name,
+                    qty=sell_qty, price=current, reason="EOD_FORCE_EXIT",
+                    metadata={"kind": "EXIT", "trigger": "EOD_FORCE_EXIT", "price_source": price_source,
+                              "pnl_pct": pnl_pct, "eod_time": kst_now.strftime("%H:%M:%S")},
+                )
+                pending_sell_tickers.add(ticker)
+                logger.info("[autotrade2] EOD 강제 매도: ticker=%s, qty=%d, pnl=%.2f%%", ticker, sell_qty, pnl_pct)
+            session.flush()
+            metric = recompute_daily_metric(session, user_id, today, cfg=cfg)
+            return RunResult(
+                run_id=run_id,
+                message=f"EOD_FORCE_EXIT: {len(created)} positions liquidated at {kst_now.strftime('%H:%M')}",
+                candidates=[], created_orders=created, metric=metric,
+            )
+
         for pos in sorted(runtime_positions, key=lambda x: x.ticker):
             ticker = _norm_ticker(str(pos.ticker or ""))
             if not ticker:
@@ -944,12 +1026,13 @@ def _run_inner(
             if pnl_pct >= final_tp_pct:
                 exit_reason = "TAKE_PROFIT"
             elif partial_tp_enabled and pnl_pct >= partial_tp_pct:
-                # 부분 익절: 이미 부분 익절 했는지 확인 (metadata 검사)
+                # [N-1 수정] 부분 익절 중복 체크에 날짜 필터 추가 (당일만)
                 already_partial = session.scalar(
                     select(AutoTrade2Order)
                     .where(AutoTrade2Order.user_id == user_id, AutoTrade2Order.ticker == ticker,
                            AutoTrade2Order.side == "SELL", AutoTrade2Order.reason == "PARTIAL_TAKE_PROFIT",
-                           AutoTrade2Order.status.in_(["PAPER_FILLED", "BROKER_SUBMITTED", "BROKER_FILLED"]))
+                           AutoTrade2Order.status.in_(["PAPER_FILLED", "BROKER_SUBMITTED", "BROKER_FILLED"]),
+                           func.date(AutoTrade2Order.requested_at) == today)
                     .limit(1)
                 )
                 if already_partial is None:
@@ -1023,6 +1106,10 @@ def _run_inner(
             # P0-3: 쓰로틀 모드면 예산 축소
             if entry_throttled:
                 budget *= throttle_ratio
+
+            # [P0-4] Tick 반올림 검증: 가격을 호가 단위에 맞추고, 역전 체크
+            if price > 0.0 and _is_kr_ticker(ticker):
+                price = _round_to_tick(price)
 
             qty = int(budget // price) if price > 0.0 else 0
             required_cash = price * qty

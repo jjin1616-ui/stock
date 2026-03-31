@@ -47,6 +47,8 @@ _REASON_MAP: dict[str, tuple[str, str]] = {
     "AVG_FALLBACK_FORCE_EXIT": ("실시간 가격 미확보 강제 청산", "시세 서비스 상태 확인"),
     "SKIPPED_PRICE_UNCERTAIN": ("가격 불확실 — 청산 보류", "시세 정상화 후 자동 재시도"),
     "TICK_VALIDATION_FAILED": ("tick 역전/비정상 레벨", "해당 종목 자동 제외됨"),
+    "EOD_FORCE_EXIT": ("장 마감 강제 청산", "15:25 이후 모든 포지션 자동 청산"),
+    "EOD_ENTRY_BLOCKED": ("장 마감 임박 진입 차단", "다음 거래일 장 시작 후 재시도"),
 }
 
 
